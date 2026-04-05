@@ -1,0 +1,10 @@
+{
+  "carga_horaria_diaria_min": 480,
+  "almoco_minimo_min": 60,
+  "variacao_min_min": 475,
+  "variacao_max_min": 500,
+  "almoco_gerado_min_min": 60,
+  "almoco_gerado_max_min": 75,
+  "horario_contratual": "08:30-12:00/13:00-17:30",
+  "nome_instituicao": "UNIVERSIDADE ESTADUAL DE GOIÁS - UEG"
+}

@@ -1,0 +1,28 @@
+# Binários
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+server
+
+# Dados locais
+data/
+settings.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribução
+*.zip
+
+# Notas
+ponto-real.md
+media-exemplos/
