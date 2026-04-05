@@ -92,7 +92,7 @@ git clone https://github.com/fernangcortes/ponto-real-go.git
 cd ponto-real-go
 
 # Execute o servidor
-go run ./cmd/server
+go run .
 ```
 
 ### Configuração
@@ -112,7 +112,7 @@ Para hospedar o **Ponto Real Go** no [Render](https://render.com):
 2. O Render usará o arquivo `render.yaml` (Blueprint) automaticamente.
 3. Se for configurar manualmente, use os seguintes parâmetros:
    - **Runtime**: `Go`
-   - **Build Command**: `go build -o app ./cmd/server`
+   - **Build Command**: `go build -o app .`
    - **Start Command**: `./app`
    - **Environment Variables**:
      - `PORT`: `10000` (ou sua preferência)
@@ -124,14 +124,12 @@ Para hospedar o **Ponto Real Go** no [Render](https://render.com):
 
 ```
 ponto-real-go/
-├── cmd/
-│   └── server/
-│       ├── main.go            # Servidor HTTP e bootstrap
-│       └── web/               # Frontend (embed no binário)
-│           ├── index.html     # Interface principal
-│           ├── app.js         # Lógica do frontend
-│           ├── styles.css     # Estilos
-│           └── favicon.*      # Ícones
+├── main.go            # Servidor HTTP e bootstrap
+├── web/               # Frontend (embed no binário)
+│   ├── index.html     # Interface principal
+│   ├── app.js         # Lógica do frontend
+│   ├── styles.css     # Estilos
+│   └── favicon.*      # Ícones
 ├── internal/
 │   ├── api/
 │   │   ├── handler.go         # Handlers HTTP (upload, CRUD)

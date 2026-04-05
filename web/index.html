@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ponto Real Go — Folha de Frequência Inteligente</title>
+    <meta name="description"
+        content="Sistema inteligente de ajuste de ponto para servidores públicos. Leitura automática por IA, cálculo de saldos e geração de justificativas para folhas de frequência.">
+
+    <!-- Open Graph / WhatsApp -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://fernangcortes.github.io/ponto-real-go/">
+    <meta property="og:title" content="Ponto Real Go — Folha de Frequência Inteligente">
+    <meta property="og:description" content="Leitura automática de folha de ponto por IA. Calcula saldos, gera ocorrências e justificativas para servidores públicos. Gratuito e open source.">
+    <meta property="og:image" content="https://fernangcortes.github.io/ponto-real-go/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:locale" content="pt_BR">
+    <meta property="og:site_name" content="Ponto Real Go">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Ponto Real Go — Folha de Frequência Inteligente">
+    <meta name="twitter:description" content="Leitura automática de folha de ponto por IA. Calcula saldos, gera ocorrências e justificativas.">
+    <meta name="twitter:image" content="https://fernangcortes.github.io/ponto-real-go/og-image.png">
+
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/png" sizes="48x48" href="favicon-48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon-180.png">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+
+    <div class="header-bar">
+        <div class="header-left">
+            <svg class="header-icon" viewBox="0 0 24 24">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <div class="header-text">
+                <h1>Ponto Real Go <span class="version-badge" id="versionBadge">v0.3.0</span></h1>
+                <div class="header-sub">
+                    <div class="month-nav" id="monthNav" style="display:none">
+                        <button class="btn-month-nav" id="monthPrev" title="Mês anterior">◀</button>
+                        <select id="monthSelect" class="month-select" aria-label="Selecionar mês"></select>
+                        <button class="btn-month-nav" id="monthNext" title="Próximo mês">▶</button>
+                        <span class="save-indicator" id="saveIndicator" title="Estado de salvamento"></span>
+                    </div>
+                    <input type="text" id="headerMonthInput" class="header-month-input"
+                        placeholder="Mês/Ano" aria-label="Mês e Ano" autocomplete="off" style="display:none">
+                </div>
+            </div>
+        </div>
+        <div class="header-actions">
+            <div class="server-info" id="serverInfo"></div>
+            <button class="btn-icon" id="settingsBtn" aria-label="Configurações" title="Configurações">
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                    </path>
+                </svg>
+            </button>
+            <button class="btn-icon" id="helpBtn" aria-label="Tutorial" title="Tutorial interativo">
+                <svg viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+            </button>
+            <button class="btn-icon" id="themeToggle" aria-label="Alternar tema">
+                <svg viewBox="0 0 24 24">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Upload Zone (Compact) -->
+    <div class="upload-zone" id="uploadZone">
+        <div class="upload-content" id="uploadContent">
+            <svg class="upload-icon-sm" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <span class="upload-hint">Arraste ou clique para selecionar</span>
+            <span class="upload-hint-sub">PNG, JPEG, PDF (máx. 10MB)</span>
+            <div class="upload-controls">
+                <select id="modelSelect" class="model-select" aria-label="Selecionar modelo">
+                    <option value="gemini-3.1-flash-lite-preview">⚡ Flash Lite</option>
+                    <option value="gemini-3.1-pro-preview">🧠 Pro</option>
+                </select>
+                <button class="btn-upload" id="uploadBtn">Processar</button>
+            </div>
+            <input type="file" id="fileInput" accept=".png,.jpg,.jpeg,.webp,.pdf" hidden>
+        </div>
+        <div class="upload-file-selected" id="uploadFileSelected" style="display:none">
+            <span class="file-icon" id="fileIcon">📄</span>
+            <span class="file-name" id="fileName"></span>
+            <span class="file-size" id="fileSize"></span>
+            <button class="btn-link" id="fileChange">Trocar</button>
+            <div class="upload-controls">
+                <select id="modelSelect2" class="model-select" aria-label="Selecionar modelo">
+                    <option value="gemini-3.1-flash-lite-preview">⚡ Flash Lite</option>
+                    <option value="gemini-3.1-pro-preview">🧠 Pro</option>
+                </select>
+                <button class="btn-upload" id="uploadBtn2">Processar</button>
+            </div>
+        </div>
+        <div class="upload-loading" id="uploadLoading" style="display:none">
+            <div class="spinner-sm"></div>
+            <span id="loadingText">Extraindo com <strong id="loadingModel">Gemini</strong>...</span>
+        </div>
+        <div class="upload-success" id="uploadSuccess" style="display:none">
+            <span class="success-icon-sm">✅</span>
+            <span class="success-detail" id="uploadSuccessDetail"></span>
+            <button class="btn-link" id="uploadClear" title="Fazer novo upload">Novo ↑</button>
+            <button class="btn-toggle" id="uploadToggle" title="Recolher">▲</button>
+        </div>
+        <div class="upload-collapsed" id="uploadCollapsed" style="display:none">
+            <span class="success-icon-sm">✅</span>
+            <span class="collapsed-name" id="collapsedName"></span>
+            <button class="btn-toggle" id="uploadExpand" title="Expandir">▼</button>
+        </div>
+    </div>
+
+    <!-- Status bar (escondida até upload) -->
+    <div class="status-bar" id="statusBar" style="display:none">
+        <div class="status-item">
+            <span class="status-label">Faltas</span>
+            <span class="status-value status-danger" id="totalFaltas">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Ajustados</span>
+            <span class="status-value status-warning" id="totalAjustados">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Completos</span>
+            <span class="status-value status-success" id="totalCompletos">0</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label" title="Soma dos saldos originais da imagem">Saldo Extraído</span>
+            <span class="status-value" id="saldoTotalOficial"
+                style="font-size: 14px; color: var(--text-muted)">+00:00</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label" title="Soma matemática real dos dias">Saldo Real</span>
+            <span class="status-value" id="saldoTotal">+00:00</span>
+        </div>
+    </div>
+
+    <div id="tablesContainer" class="table-container"></div>
+
+    <!-- Placeholder / Seletor de meses -->
+    <div class="empty-state" id="emptyState">
+        <div id="monthListPanel" style="display:none; width:100%; max-width:480px;">
+            <h2 style="color:var(--text-primary);font-size:16px;margin-bottom:12px;text-align:center;">📅 Meses Salvos</h2>
+            <div id="monthList" class="month-list"></div>
+            <button class="btn-new-month" id="btnNewMonth">＋ Novo Mês</button>
+        </div>
+        <div id="emptyStateDefault">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5"
+                style="opacity:0.3">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            <p style="color:var(--text-muted);margin-top:12px;">Faça upload da folha de ponto para começar</p>
+        </div>
+    </div>
+
+    <!-- Toolbar de cópia -->
+    <div class="copy-toolbar" id="copyToolbar" style="display:none">
+        <button class="btn-copy" onclick="copyTable()" title="Copiar tabela principal">
+            <svg viewBox="0 0 24 24" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Tabela
+        </button>
+        <button class="btn-copy" onclick="copyOcorrencia()" title="Copiar Ocorrência">
+            <svg viewBox="0 0 24 24" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Ocorrência
+        </button>
+        <button class="btn-copy" onclick="copyJustificativa()" title="Copiar Justificativas">
+            <svg viewBox="0 0 24 24" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Justificativa
+        </button>
+        <button class="btn-copy btn-copy-all" onclick="copyAll()" title="Copiar todos os dados">
+            <svg viewBox="0 0 24 24" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Copiar Tudo
+        </button>
+    </div>
+
+    <div class="summary-card" id="summaryCard" style="display:none">
+        <div class="doc-section-header">
+            <div class="doc-section-title">Ocorrência</div>
+            <button class="btn-copy-sm" onclick="copyOcorrencia()" title="Copiar Ocorrência">
+                <svg viewBox="0 0 24 24" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copiar
+            </button>
+        </div>
+        <table class="doc-table">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Entrada</th>
+                    <th>Saída(Intervalo)</th>
+                    <th>Entrada(Intervalo)</th>
+                    <th>Saída</th>
+                </tr>
+            </thead>
+            <tbody id="ocorrenciaBody"></tbody>
+        </table>
+
+        <div class="doc-section-header">
+            <div class="doc-section-title">Justificativa do Servidor</div>
+            <button class="btn-copy-sm" onclick="copyJustificativa()" title="Copiar Justificativas">
+                <svg viewBox="0 0 24 24" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copiar
+            </button>
+        </div>
+        <table class="doc-table justificativa">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Relatório de Atividades ou Documentação Comprobatória</th>
+                </tr>
+            </thead>
+            <tbody id="justificativaBody"></tbody>
+        </table>
+    </div>
+
+
+    <!-- Modal de Configurações -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Configurações</h2>
+                <button class="icon-btn" id="closeSettingsModal" aria-label="Fechar">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="geminiApiKey">Chave da API Gemini (Google AI Studio)</label>
+                    <input type="password" id="geminiApiKey" placeholder="AIzaSy...">
+                    <small>Sua chave fica salva localmente no arquivo settings.json. <a
+                            href="https://aistudio.google.com/app/apikey" target="_blank"
+                            style="color:var(--primary)">Obter uma chave</a></small>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" id="saveSettingsBtn">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Tour / Tutorial Interativo -->
+    <div id="tourOverlay" class="tour-overlay" style="display:none">
+        <div class="tour-spotlight" id="tourSpotlight"></div>
+    </div>
+    <div id="tourTooltip" class="tour-tooltip" style="display:none">
+        <div class="tour-tooltip-arrow" id="tourArrow"></div>
+        <div class="tour-step-badge" id="tourBadge"></div>
+        <div class="tour-title" id="tourTitle"></div>
+        <div class="tour-text" id="tourText"></div>
+        <div class="tour-footer">
+            <div class="tour-dots" id="tourDots"></div>
+            <div class="tour-nav">
+                <button class="tour-btn tour-btn-skip" id="tourSkip">Pular</button>
+                <button class="tour-btn tour-btn-prev" id="tourPrev">← Anterior</button>
+                <button class="tour-btn tour-btn-next" id="tourNext">Próximo →</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <span>desenvolvido por <strong>FGC</strong></span>
+        <span class="footer-sep">·</span>
+        <a href="mailto:vozesdoasfalto@gmail.com" class="footer-link">vozesdoasfalto@gmail.com</a>
+        <span class="footer-sep">·</span>
+        <span class="footer-pix">
+            ☕ doe:
+            <code id="pixCode">00833238132</code>
+            <button class="footer-copy-btn" onclick="navigator.clipboard.writeText('00833238132');this.textContent='✓';setTimeout(()=>this.textContent='📋',1500)" title="Copiar PIX">
+                📋
+            </button>
+        </span>
+    </footer>
+</body>
+
+</html>
