@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: ponto-real-go
+    runtime: go
+    # Render default tries to build the root, but our main is in cmd/server
+    buildCommand: go build -o app ./cmd/server
+    startCommand: ./app
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: GO_VERSION
+        value: 1.25.0
+      - key: GIN_MODE
+        value: release

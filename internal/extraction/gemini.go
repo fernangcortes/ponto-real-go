@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/internal/models"
 )
 
 const geminiAPIBase = "https://generativelanguage.googleapis.com/v1beta/models"

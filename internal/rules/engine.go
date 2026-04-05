@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/internal/models"
 )
 
 // Engine é o motor de regras de ponto que valida e classifica dias.

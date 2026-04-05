@@ -102,13 +102,21 @@ go run ./cmd/server
 3. Insira sua chave da API Gemini
 4. Pronto! Faça upload da sua folha de ponto
 
-### Uso
+---
 
-1. **Arraste** ou **clique** para selecionar a imagem/PDF da folha de ponto
-2. Escolha o modelo de IA: **Flash Lite** (rápido) ou **Pro** (preciso)
-3. Clique em **Processar**
-4. Edite horários, altere tipos de dia conforme necessário
-5. Copie ocorrências e justificativas para o sistema do estado
+## ☁️ Deployment (Render)
+
+Para hospedar o **Ponto Real Go** no [Render](https://render.com):
+
+1. Conecte seu repositório GitHub ao Render.
+2. O Render usará o arquivo `render.yaml` (Blueprint) automaticamente.
+3. Se for configurar manualmente, use os seguintes parâmetros:
+   - **Runtime**: `Go`
+   - **Build Command**: `go build -o app ./cmd/server`
+   - **Start Command**: `./app`
+   - **Environment Variables**:
+     - `PORT`: `10000` (ou sua preferência)
+     - `GEMINI_API_KEY`: Sua chave do Google Gemini
 
 ---
 

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/internal/models"
 )
 
 // GeminiAdjuster ajusta horários faltantes usando a API Gemini (text-only).

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ponto-real-go/internal/extraction"
-	"github.com/ponto-real-go/internal/models"
-	"github.com/ponto-real-go/internal/rules"
+	"github.com/fernangcortes/ponto-real-go/internal/extraction"
+	"github.com/fernangcortes/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/internal/rules"
 )
 
 const settingsFile = "settings.json"

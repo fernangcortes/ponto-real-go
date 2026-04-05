@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/internal/models"
 )
 
 func TestTimeToMinutes(t *testing.T) {
