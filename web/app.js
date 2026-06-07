@@ -1912,7 +1912,16 @@ const generateSeiHtml = () => {
     const cLotacao = document.getElementById('seiChefiaLotacao').value;
 
     // Filtrar dias com ocorrências (dias ajustados, onde d.o possui 0)
-    const occurrences = daysData.filter(d => d.o && d.o.includes(0));
+    const occurrences = daysData.filter(d => {
+        if (!d.o || !d.o.includes(0)) return false;
+        const tipo = classifyDay(d);
+        const isDispensa = tipo === 'dispensa';
+        const fields = ['e1', 's1', 'e2', 's2'];
+        const hasEditedFields = isDispensa
+            ? fields.some((f, fi) => d.o[fi] === 0 && isTimeValid(d[f]))
+            : true;
+        return hasEditedFields;
+    });
 
     let ocorrenciasRowsHtml = '';
     let justificativasHtml = '';
@@ -1934,9 +1943,15 @@ const generateSeiHtml = () => {
         const fields = ['e1', 's1', 'e2', 's2'];
         const fields_names = ['a entrada', 'a saída do almoço', 'a entrada do almoço', 'a saída'];
         const faltantes = [];
+        const tipo = classifyDay(d);
+        const isDispensa = tipo === 'dispensa';
+
         fields.forEach((f, fi) => {
             if (d.o[fi] === 0) {
-                faltantes.push(fields_names[fi]);
+                // Dispensa: só listar se o campo foi preenchido pelo usuário
+                if (!isDispensa || isTimeValid(d[f])) {
+                    faltantes.push(fields_names[fi]);
+                }
             }
         });
 
