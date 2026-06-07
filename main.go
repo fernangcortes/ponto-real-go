@@ -8,7 +8,10 @@ import (
 	"os"
 
 	"github.com/fernangcortes/ponto-real-go/pkg/api"
+	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
+	"github.com/fernangcortes/ponto-real-go/pkg/repository"
 	"github.com/fernangcortes/ponto-real-go/pkg/rules"
+	"github.com/fernangcortes/ponto-real-go/pkg/service"
 )
 
 //go:embed all:web
@@ -28,12 +31,20 @@ func main() {
 		engine = rules.NewEngineWithDefaults()
 	}
 
+	// Inicializar dependências (Injeção de Dependências explícita)
+	timesheetRepo := repository.NewJSONTimesheetRepository("data")
+	settingsRepo := repository.NewJSONSettingsRepository("settings.json")
+	extractorFactory := extraction.NewRegistryExtractorFactory()
+
+	timesheetService := service.NewTimesheetService(engine, timesheetRepo, extractorFactory)
+	handler := api.NewHandler(timesheetService, settingsRepo)
+
 	// Configurar rotas
 	mux := http.NewServeMux()
 
-	// Registrar endpoints da API
-	handler := api.NewHandler(engine)
-	handler.RegisterRoutes(mux)
+	// Registrar endpoints da API usando o api.BuildHandler
+	apiHandler := api.BuildHandler(handler)
+	mux.Handle("/api/", apiHandler)
 
 	// Servir arquivos estáticos do front-end (embeds)
 	webContent, err := fs.Sub(webFS, "web")
@@ -43,7 +54,7 @@ func main() {
 	}
 	mux.Handle("GET /", http.FileServer(http.FS(webContent)))
 
-	// Aplicar middlewares
+	// Aplicar middlewares globais a todo o servidor (estáticos + API)
 	finalHandler := api.Chain(mux,
 		api.RecoveryMiddleware,
 		api.LoggingMiddleware,

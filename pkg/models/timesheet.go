@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // ServerInfo contém os dados do servidor público extraídos da folha de frequência.
 type ServerInfo struct {
 	Nome      string `json:"nome"`
@@ -83,3 +85,41 @@ type RulesConfig struct {
 	HorarioContratual  string `json:"horario_contratual"`       // "08:30-12:00/13:00-17:30"
 	NomeInstituicao    string `json:"nome_instituicao"`
 }
+
+// MonthDayRecord estende DayRecord com o override do tipo de dia.
+type MonthDayRecord struct {
+	DayRecord
+	DayTypeOverride string `json:"day_type_override,omitempty"`
+}
+
+// MonthData é o estado completo de um mês salvo em disco.
+type MonthData struct {
+	MesAno    string           `json:"mes_ano"`
+	Servidor  ServerInfo       `json:"servidor"`
+	Dias      []MonthDayRecord `json:"dias"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+// MonthSummary é o resumo de um mês para listagem.
+type MonthSummary struct {
+	MesAno       string    `json:"mes_ano"`
+	ServidorNome string    `json:"servidor_nome"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// AppSettings contém configurações salvas localmente.
+type AppSettings struct {
+	Provider         string `json:"provider"` // "gemini" ou "openrouter"
+	GeminiAPIKey     string `json:"gemini_api_key,omitempty"`
+	OpenRouterAPIKey string `json:"open_router_api_key,omitempty"`
+}
+
+// ValidateResponse é a resposta da validação de um dia.
+type ValidateResponse struct {
+	Valid   bool     `json:"valid"`
+	Errors  []string `json:"errors,omitempty"`
+	Worked  string   `json:"worked,omitempty"`
+	Lunch   string   `json:"lunch,omitempty"`
+	Balance string   `json:"balance,omitempty"`
+}
+

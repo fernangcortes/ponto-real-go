@@ -5,26 +5,28 @@ import (
 	"net/http"
 
 	"github.com/fernangcortes/ponto-real-go/pkg/api"
+	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
+	"github.com/fernangcortes/ponto-real-go/pkg/repository"
 	"github.com/fernangcortes/ponto-real-go/pkg/rules"
+	"github.com/fernangcortes/ponto-real-go/pkg/service"
 )
 
 var finalHandler http.Handler
 
 func init() {
-	// Carregar regras
+	// Carregar regras com padrões
 	engine := rules.NewEngineWithDefaults()
 
-	// Configurar rotas da API
-	mux := http.NewServeMux()
-	handler := api.NewHandler(engine)
-	handler.RegisterRoutes(mux)
+	// Inicializar dependências
+	timesheetRepo := repository.NewJSONTimesheetRepository("data")
+	settingsRepo := repository.NewJSONSettingsRepository("settings.json")
+	extractorFactory := extraction.NewRegistryExtractorFactory()
 
-	// Aplicar middlewares
-	finalHandler = api.Chain(mux,
-		api.RecoveryMiddleware,
-		api.LoggingMiddleware,
-		api.CORSMiddleware,
-	)
+	timesheetService := service.NewTimesheetService(engine, timesheetRepo, extractorFactory)
+	handler := api.NewHandler(timesheetService, settingsRepo)
+
+	// Configurar rotas e middlewares
+	finalHandler = api.BuildHandler(handler)
 
 	fmt.Println("[Vercel] Serverless backend inicializado com sucesso!")
 }

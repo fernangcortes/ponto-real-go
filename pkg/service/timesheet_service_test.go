@@ -1,10 +1,11 @@
-package api
+package service
 
 import (
 	"testing"
 )
 
 func TestIsValidMesAno(t *testing.T) {
+	s := &TimesheetService{}
 	tests := []struct {
 		input    string
 		expected bool
@@ -20,14 +21,15 @@ func TestIsValidMesAno(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		result := isValidMesAno(tc.input)
+		result := s.IsValidMesAno(tc.input)
 		if result != tc.expected {
-			t.Errorf("isValidMesAno(%q) = %v; expected %v", tc.input, result, tc.expected)
+			t.Errorf("IsValidMesAno(%q) = %v; expected %v", tc.input, result, tc.expected)
 		}
 	}
 }
 
 func TestExtractDateFromFilename(t *testing.T) {
+	s := &TimesheetService{}
 	tests := []struct {
 		input    string
 		expected string
@@ -42,7 +44,7 @@ func TestExtractDateFromFilename(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		result := extractDateFromFilename(tc.input)
+		result := s.ExtractDateFromFilename(tc.input)
 		if result != tc.expected {
 			t.Errorf("extractDateFromFilename(%q) = %q; expected %q", tc.input, result, tc.expected)
 		}

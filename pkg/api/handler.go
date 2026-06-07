@@ -6,53 +6,50 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
-	"time"
 
 	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
-	"github.com/fernangcortes/ponto-real-go/pkg/rules"
+	"github.com/fernangcortes/ponto-real-go/pkg/repository"
+	"github.com/fernangcortes/ponto-real-go/pkg/service"
 )
-
-const settingsFile = "settings.json"
-
-// AppSettings contém configurações salvas localmente.
-type AppSettings struct {
-	Provider         string `json:"provider"` // "gemini" ou "openrouter"
-	GeminiAPIKey     string `json:"gemini_api_key,omitempty"`
-	OpenRouterAPIKey string `json:"open_router_api_key,omitempty"`
-}
 
 // Handler contém os handlers HTTP da API.
 type Handler struct {
-	Engine   *rules.Engine
-	Settings AppSettings
+	service      *service.TimesheetService
+	settingsRepo repository.SettingsRepository
+	settings     models.AppSettings
 }
 
-// NewHandler cria um novo Handler com o motor de regras.
-func NewHandler(engine *rules.Engine) *Handler {
+// NewHandler cria um novo Handler com as dependências injetadas.
+func NewHandler(
+	service *service.TimesheetService,
+	settingsRepo repository.SettingsRepository,
+) *Handler {
 	h := &Handler{
-		Engine: engine,
+		service:      service,
+		settingsRepo: settingsRepo,
 	}
-	s, err := loadSettings()
+
+	// Carregar configurações salvas
+	s, err := settingsRepo.Load()
 	if err == nil {
-		h.Settings = s
+		h.settings = s
 	}
 
 	// Normalizar provider
-	if h.Settings.Provider == "" {
-		h.Settings.Provider = "gemini"
+	if h.settings.Provider == "" {
+		h.settings.Provider = "gemini"
 	}
 
 	// Sobrescrever/preencher com Env Vars se estiverem vazias
-	if h.Settings.GeminiAPIKey == "" {
-		h.Settings.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	if h.settings.GeminiAPIKey == "" {
+		h.settings.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
 	}
-	if h.Settings.OpenRouterAPIKey == "" {
-		h.Settings.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
+	if h.settings.OpenRouterAPIKey == "" {
+		h.settings.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
 	}
+
 	return h
 }
 
@@ -75,10 +72,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 // Health retorna status do servidor.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	hasKey := false
-	if h.Settings.Provider == "openrouter" {
-		hasKey = h.Settings.OpenRouterAPIKey != ""
+	if h.settings.Provider == "openrouter" {
+		hasKey = h.settings.OpenRouterAPIKey != ""
 	} else {
-		hasKey = h.Settings.GeminiAPIKey != ""
+		hasKey = h.settings.GeminiAPIKey != ""
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":       "ok",
@@ -101,15 +98,15 @@ func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"provider":              h.Settings.Provider,
-		"has_gemini_key":        h.Settings.GeminiAPIKey != "",
-		"masked_gemini_key":     maskKey(h.Settings.GeminiAPIKey),
-		"has_openrouter_key":    h.Settings.OpenRouterAPIKey != "",
-		"masked_openrouter_key": maskKey(h.Settings.OpenRouterAPIKey),
+		"provider":              h.settings.Provider,
+		"has_gemini_key":        h.settings.GeminiAPIKey != "",
+		"masked_gemini_key":     maskKey(h.settings.GeminiAPIKey),
+		"has_openrouter_key":    h.settings.OpenRouterAPIKey != "",
+		"masked_openrouter_key": maskKey(h.settings.OpenRouterAPIKey),
 	})
 }
 
-// SaveSettings salva a configuração em settings.json.
+// SaveSettings salva a configuração usando o repositório de configurações.
 func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Provider         string `json:"provider"`
@@ -130,21 +127,21 @@ func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	// Atualizar em memória mantendo chaves antigas se vierem vazias (placeholders)
 	geminiKey := strings.TrimSpace(req.GeminiAPIKey)
 	if geminiKey != "" {
-		h.Settings.GeminiAPIKey = geminiKey
+		h.settings.GeminiAPIKey = geminiKey
 	}
 	orKey := strings.TrimSpace(req.OpenRouterAPIKey)
 	if orKey != "" {
-		h.Settings.OpenRouterAPIKey = orKey
+		h.settings.OpenRouterAPIKey = orKey
 	}
-	h.Settings.Provider = provider
+	h.settings.Provider = provider
 
 	// Salvar no arquivo (se não estiver no Vercel)
 	if os.Getenv("VERCEL") != "1" {
-		if err := saveSettings(h.Settings); err != nil {
+		if err := h.settingsRepo.Save(h.settings); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar settings.json: " + err.Error()})
 			return
 		}
-		fmt.Println("[API] Configurações salvas em settings.json")
+		fmt.Println("[API] Configurações salvas")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -153,56 +150,23 @@ func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// loadSettings carrega settings.json do diretório do executável.
-func loadSettings() (AppSettings, error) {
-	var s AppSettings
-	path := settingsFilePath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return s, err
-	}
-	err = json.Unmarshal(data, &s)
-	return s, err
-}
-
-// saveSettings salva settings.json no diretório do executável.
-func saveSettings(s AppSettings) error {
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsFilePath(), data, 0600)
-}
-
-// settingsFilePath retorna o caminho do settings.json (mesmo dir do executável ou CWD).
-func settingsFilePath() string {
-	if os.Getenv("VERCEL") == "1" {
-		return "/tmp/settings.json"
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return settingsFile
-	}
-	return filepath.Join(filepath.Dir(exe), settingsFile)
-}
-
 // GetModels retorna os modelos disponíveis para extração.
 func (h *Handler) GetModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"provider":          h.Settings.Provider,
+		"provider":          h.settings.Provider,
 		"gemini_models":     extraction.GeminiModels(),
 		"openrouter_models": extraction.OpenRouterModels(),
-		"has_gemini_key":    h.Settings.GeminiAPIKey != "",
-		"has_or_key":        h.Settings.OpenRouterAPIKey != "",
+		"has_gemini_key":    h.settings.GeminiAPIKey != "",
+		"has_or_key":        h.settings.OpenRouterAPIKey != "",
 	})
 }
 
-// Upload recebe um PDF/PNG via multipart, extrai dados via Gemini/OpenRouter e retorna Timesheet.
+// Upload recebe um PDF/PNG via multipart, delega para o serviço de extração e retorna o ProcessResponse.
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Validar chaves com base no provedor
 	var apiKey string
-	if h.Settings.Provider == "openrouter" {
-		apiKey = h.Settings.OpenRouterAPIKey
+	if h.settings.Provider == "openrouter" {
+		apiKey = h.settings.OpenRouterAPIKey
 		if apiKey == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "Chave da API OpenRouter não configurada. Clique no ⚙️ no topo para configurá-la.",
@@ -210,7 +174,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		apiKey = h.Settings.GeminiAPIKey
+		apiKey = h.settings.GeminiAPIKey
 		if apiKey == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "Chave da API Gemini não configurada. Clique no ⚙️ no topo para configurá-la.",
@@ -269,7 +233,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Modelo selecionado pelo usuário
 	model := r.FormValue("model")
 	if model == "" {
-		if h.Settings.Provider == "openrouter" {
+		if h.settings.Provider == "openrouter" {
 			model = "google/gemini-2.5-flash"
 		} else {
 			model = "gemini-2.5-flash"
@@ -277,7 +241,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validar modelo com base no provedor
-	if h.Settings.Provider == "openrouter" {
+	if h.settings.Provider == "openrouter" {
 		validModels := map[string]bool{
 			"google/gemini-2.5-flash":            true,
 			"google/gemini-2.0-flash-001":        true,
@@ -305,66 +269,15 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Printf("[API] Upload: %s (%s, %d bytes) provedor: %s, modelo: %s\n", header.Filename, mimeType, len(fileBytes), h.Settings.Provider, model)
+	fmt.Printf("[API] Upload: %s (%s, %d bytes) provedor: %s, modelo: %s\n", header.Filename, mimeType, len(fileBytes), h.settings.Provider, model)
 
-	// Etapa 1: Extrair dados brutos via Vision
-	fmt.Printf("[API] Etapa 1/2: Extraindo dados com %s...\n", h.Settings.Provider)
-	var extractor extraction.Extractor
-	if h.Settings.Provider == "openrouter" {
-		extractor = extraction.NewOpenRouterExtractor(apiKey, model)
-	} else {
-		extractor = extraction.NewGeminiExtractor(apiKey, model)
-	}
-	timesheet, err := extractor.Extract(fileBytes, mimeType)
+	// Chamar o caso de uso de processamento de folha de ponto
+	resp, err := h.service.ProcessUpload(fileBytes, mimeType, header.Filename, model, h.settings.Provider, apiKey)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "Erro na extração: " + err.Error(),
+			"error": err.Error(),
 		})
 		return
-	}
-	fmt.Printf("[API] Extração: %d dias extraídos\n", len(timesheet.Dias))
-
-	// Preencher MesAno se estiver ausente ou inválido usando o nome do arquivo
-	if !isValidMesAno(timesheet.MesAno) {
-		filenameDate := extractDateFromFilename(header.Filename)
-		if filenameDate != "" {
-			timesheet.MesAno = filenameDate
-			fmt.Printf("[API] MesAno extraído do nome do arquivo '%s': %s\n", header.Filename, filenameDate)
-		}
-	}
-
-	// Etapa 2: Ajustar horários faltantes (lógica determinística)
-	fmt.Println("[API] Etapa 2/2: Ajustando horários faltantes...")
-	adjuster := extraction.NewRulesAdjuster(h.Engine)
-	adjusted := adjuster.Adjust(timesheet)
-
-	fmt.Printf("[API] Ajuste concluído: %d dias processados\n", len(adjusted.Dias))
-
-	// Classificar dias e calcular resumo
-	for i := range adjusted.Dias {
-		adjusted.Dias[i].Tipo = h.Engine.ClassifyDay(&adjusted.Dias[i])
-	}
-	summary := h.Engine.CalculateSummary(adjusted.Dias)
-
-	resp := models.ProcessResponse{
-		Timesheet: *adjusted,
-		Summary:   summary,
-	}
-
-	// Auto-save: salvar o mês processado em disco
-	if adjusted.MesAno != "" {
-		monthDays := make([]MonthDayRecord, len(adjusted.Dias))
-		for i, d := range adjusted.Dias {
-			monthDays[i] = MonthDayRecord{DayRecord: d}
-		}
-		monthData := MonthData{
-			MesAno:   adjusted.MesAno,
-			Servidor: adjusted.Servidor,
-			Dias:     monthDays,
-		}
-		if err := SaveMonth(monthData); err != nil {
-			fmt.Printf("[WARN] Erro ao auto-salvar mês: %v\n", err)
-		}
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -372,10 +285,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 // GetRules retorna as regras de cálculo atuais.
 func (h *Handler) GetRules(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.Engine.Config)
+	writeJSON(w, http.StatusOK, h.service.GetEngineConfig())
 }
 
-// Process recebe dias de uma folha de ponto, classifica, calcula saldo e retorna resumo.
+// Process recebe dias de uma folha de ponto, delega classificação/resumo para o serviço e retorna ProcessResponse.
 func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
 	var req models.ProcessRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -386,27 +299,10 @@ func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	if len(req.Dias) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Nenhum dia fornecido",
-		})
+	resp, err := h.service.Process(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
-	}
-
-	// Classificar cada dia
-	for i := range req.Dias {
-		req.Dias[i].Tipo = h.Engine.ClassifyDay(&req.Dias[i])
-	}
-
-	// Calcular resumo
-	summary := h.Engine.CalculateSummary(req.Dias)
-
-	resp := models.ProcessResponse{
-		Timesheet: models.Timesheet{
-			Version: 1,
-			Dias:    req.Dias,
-		},
-		Summary: summary,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -415,15 +311,6 @@ func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
 // ValidateRequest é o payload para validação de um dia.
 type ValidateRequest struct {
 	Day models.DayRecord `json:"day"`
-}
-
-// ValidateResponse é a resposta da validação.
-type ValidateResponse struct {
-	Valid   bool     `json:"valid"`
-	Errors  []string `json:"errors,omitempty"`
-	Worked  string   `json:"worked,omitempty"`
-	Lunch   string   `json:"lunch,omitempty"`
-	Balance string   `json:"balance,omitempty"`
 }
 
 // Validate verifica se os horários de um dia são válidos e retorna cálculos.
@@ -437,32 +324,19 @@ func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	errs := h.Engine.ValidateDay(&req.Day)
-	worked := h.Engine.CalculateDayWorked(&req.Day)
-	lunch := h.Engine.CalculateLunchDuration(&req.Day)
-
-	resp := ValidateResponse{
-		Valid:   len(errs) == 0,
-		Errors:  errs,
-		Worked:  rules.MinutesToTimeUnsigned(worked),
-		Lunch:   rules.MinutesToTimeUnsigned(lunch),
-		Balance: rules.MinutesToTime(worked - h.Engine.Config.CargaHorariaDiaria),
-	}
-
+	resp := h.service.Validate(req.Day)
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// --- Persistência por Mês ---
-
 // ListMonths retorna todos os meses salvos.
 func (h *Handler) ListMonths(w http.ResponseWriter, r *http.Request) {
-	months, err := ListMonths()
+	months, err := h.service.ListMonths()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	if months == nil {
-		months = []MonthSummary{}
+		months = []models.MonthSummary{}
 	}
 	writeJSON(w, http.StatusOK, months)
 }
@@ -478,7 +352,7 @@ func (h *Handler) LoadMonth(w http.ResponseWriter, r *http.Request) {
 	// Converter "02_2026" para "02/2026"
 	mesAno = strings.ReplaceAll(mesAno, "_", "/")
 
-	data, err := LoadMonth(mesAno)
+	data, err := h.service.LoadMonth(mesAno)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Mês não encontrado: " + mesAno})
 		return
@@ -498,7 +372,7 @@ func (h *Handler) SaveMonth(w http.ResponseWriter, r *http.Request) {
 	// Converter "02_2026" para "02/2026"
 	mesAno = strings.ReplaceAll(mesAno, "_", "/")
 
-	var data MonthData
+	var data models.MonthData
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido: " + err.Error()})
 		return
@@ -507,7 +381,7 @@ func (h *Handler) SaveMonth(w http.ResponseWriter, r *http.Request) {
 
 	data.MesAno = mesAno
 
-	if err := SaveMonth(data); err != nil {
+	if err := h.service.SaveMonth(data); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar: " + err.Error()})
 		return
 	}
@@ -527,7 +401,6 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 
 // detectMimeType detecta o tipo MIME do arquivo pelo nome ou magic bytes.
 func detectMimeType(filename string, data []byte) string {
-	// Primeiro tentar pela extensão
 	lower := strings.ToLower(filename)
 	switch {
 	case strings.HasSuffix(lower, ".png"):
@@ -539,7 +412,6 @@ func detectMimeType(filename string, data []byte) string {
 	case strings.HasSuffix(lower, ".pdf"):
 		return "application/pdf"
 	}
-	// Fallback: magic bytes
 	if len(data) >= 4 {
 		if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
 			return "image/png"
@@ -552,115 +424,4 @@ func detectMimeType(filename string, data []byte) string {
 		}
 	}
 	return "application/octet-stream"
-}
-
-func isValidMesAno(mesAno string) bool {
-	if mesAno == "" {
-		return false
-	}
-	if strings.Contains(mesAno, "?") {
-		return false
-	}
-	parts := strings.Split(mesAno, "/")
-	if len(parts) != 2 {
-		return false
-	}
-	if len(parts[0]) != 2 || len(parts[1]) != 4 {
-		return false
-	}
-	return true
-}
-
-func extractDateFromFilename(filename string) string {
-	filename = strings.ToLower(filename)
-
-	type monthSearch struct {
-		name string
-		code string
-	}
-	monthsSearchList := []monthSearch{
-		{"fevereiro", "02"},
-		{"setembro", "09"},
-		{"novembro", "11"},
-		{"dezembro", "12"},
-		{"janeiro", "01"},
-		{"outubro", "10"},
-		{"agosto", "08"},
-		{"abril", "04"},
-		{"março", "03"},
-		{"marco", "03"},
-		{"junho", "06"},
-		{"julho", "07"},
-		{"maio", "05"},
-		{"fev", "02"},
-		{"set", "09"},
-		{"nov", "11"},
-		{"dez", "12"},
-		{"jan", "01"},
-		{"out", "10"},
-		{"ago", "08"},
-		{"abr", "04"},
-		{"mar", "03"},
-		{"jun", "06"},
-		{"jul", "07"},
-		{"mai", "05"},
-	}
-
-	detectedMonth := ""
-	for _, m := range monthsSearchList {
-		if strings.Contains(filename, m.name) {
-			detectedMonth = m.code
-			break
-		}
-	}
-
-	detectedYear := ""
-	// Tentar detectar ano de 4 dígitos (2020-2039)
-	reYear4 := regexp.MustCompile(`20[2-3]\d`)
-	detectedYear = reYear4.FindString(filename)
-
-	// Se não achou ano de 4 dígitos, procurar 2 dígitos após o nome do mês
-	if detectedYear == "" && detectedMonth != "" {
-		reYear2 := regexp.MustCompile(`\d{2}`)
-		allNums := reYear2.FindAllString(filename, -1)
-		for _, num := range allNums {
-			if num != detectedMonth {
-				detectedYear = "20" + num
-				break
-			}
-		}
-	}
-
-	// Se ainda não achou ano, usar o ano atual como fallback
-	if detectedYear == "" && detectedMonth != "" {
-		detectedYear = fmt.Sprintf("%d", time.Now().Year())
-	}
-
-	// Se não achou nome de mês, tentar padrão numérico como "04-2026" ou "04_2026" ou "2026_04"
-	if detectedMonth == "" {
-		reNumDate := regexp.MustCompile(`(?:0[1-9]|1[0-2])[_\-\/](20[2-3]\d)`)
-		match := reNumDate.FindStringSubmatch(filename)
-		if len(match) > 0 {
-			// A string pode ser algo como "04-2026"
-			detectedYear = match[1]
-			// O mês é os primeiros 2 dígitos
-			parts := strings.Split(regexp.MustCompile(`[_\-\/]`).ReplaceAllString(match[0], " "), " ")
-			if len(parts) > 0 {
-				detectedMonth = parts[0]
-			}
-		} else {
-			reNumDateRev := regexp.MustCompile(`(20[2-3]\d)[_\-\/](0[1-9]|1[0-2])`)
-			matchRev := reNumDateRev.FindStringSubmatch(filename)
-			if len(matchRev) == 3 {
-				detectedYear = matchRev[1]
-				detectedMonth = matchRev[2]
-			}
-		}
-	}
-
-	if detectedMonth != "" && detectedYear != "" {
-		return fmt.Sprintf("%s/%s", detectedMonth, detectedYear)
-	}
-
-	return ""
 }

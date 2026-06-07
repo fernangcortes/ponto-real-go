@@ -55,3 +55,15 @@ func Chain(h http.Handler, middlewares ...func(http.Handler) http.Handler) http.
 	}
 	return h
 }
+
+// BuildHandler cria um multiplexer para as rotas da API e aplica os middlewares padrão.
+func BuildHandler(h *Handler) http.Handler {
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	return Chain(mux,
+		RecoveryMiddleware,
+		LoggingMiddleware,
+		CORSMiddleware,
+	)
+}
+
