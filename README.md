@@ -130,29 +130,36 @@ Para hospedar o **Ponto Real Go** no [Render](https://render.com):
 
 ```
 ponto-real-go/
-├── main.go            # Servidor HTTP e bootstrap
+├── main.go            # Servidor HTTP e bootstrap (inicializa e injeta dependências)
 ├── vercel.json        # Configuração de deploys no Vercel
 ├── api/
 │   └── index.go       # Ponto de entrada Serverless para Vercel
 ├── web/               # Frontend (embed no binário ou CDN no Vercel)
 │   ├── index.html     # Interface principal
 │   ├── app.js         # Lógica do frontend
-│   ├── styles.css     # Estilos
+│   ├── styles.css     # Estilos (com ocultação de barra de rolagem global)
 │   └── favicon.*      # Ícones
-├── pkg/               # Pacotes Go (antigo internal/)
+├── pkg/               # Pacotes Go
 │   ├── api/
-│   │   ├── handler.go         # Handlers HTTP (upload, CRUD)
-│   │   ├── middleware.go      # CORS e middlewares
-│   │   └── storage.go         # Persistência em JSON (desativa se VERCEL=1)
+│   │   ├── handler.go         # Handlers HTTP (apenas delega para os serviços)
+│   │   └── middleware.go      # Middlewares CORS, logging, pânico e BuildHandler
+│   ├── repository/
+│   │   ├── timesheet_repository.go # Interface de repositório de folhas de ponto
+│   │   ├── settings_repository.go  # Interface de repositório de configurações
+│   │   └── json_repository.go      # Persistência concreta em arquivos JSON local
+│   ├── service/
+│   │   ├── timesheet_service.go    # Casos de uso e orquestração de negócios
+│   │   └── timesheet_service_test.go # Testes de cobertura do serviço
 │   ├── extraction/
 │   │   ├── provider.go        # Interface de extração IA
+│   │   ├── factory.go         # Fábrica de extratores baseada em registro modular
 │   │   ├── gemini.go          # Integração Google Gemini
 │   │   ├── openrouter.go      # Integração OpenRouter API
 │   │   ├── prompt.go          # Prompt de extração
 │   │   ├── prompt_adjust.go   # Prompt de ajuste
 │   │   └── rules_adjuster.go  # Ajuste baseado em regras (preserva saldo original)
 │   ├── models/
-│   │   └── timesheet.go       # Modelos de dados
+│   │   └── timesheet.go       # Modelos de dados de domínio e DTOs
 │   └── rules/
 │       ├── engine.go          # Motor de regras
 │       ├── engine_test.go     # Testes
@@ -171,10 +178,14 @@ ponto-real-go/
 
 ## 📝 Changelog
 
-### v0.4.0 — OpenRouter, Vercel & SEI (Junho 2026)
-- ✅ Integração com **OpenRouter** suportando múltiplos modelos (incluindo Gemini 2.5/2.0 Flash, GPT-4o mini, Qwen 2.5 VL).
-- ✅ Configuração serverless e suporte completo para **Vercel** (`vercel.json`, `api/index.go`).
-- ✅ Refatoração estrutural de visibilidade (renomeado `internal/` para `pkg/` para compilar sob a infraestrutura do Vercel).
+### v1.0.0 — Stable Release & Clean Architecture (Junho 2026)
+- ✅ **Refatoração para Clean Architecture e SOLID**: Separação total da camada de negócio (`service`), persistência (`repository`), inteligência artificial (`extraction/factory`) e transporte (`api/handler`).
+- ✅ **Injeção de Dependências**: Inicializações explícitas de repositórios e serviços no bootstrap, eliminando acoplamentos rígidos e variáveis globais.
+- ✅ **Provedores de IA Plugáveis**: Fábrica baseada em registro de builders para facilidade na expansão de novos extratores (ex: Claude, Document AI).
+- ✅ **Ajustes Finos de Design**: Modais responsivos com barra de rolagem inteligente para evitar estouros na vertical (`max-height: 90vh`).
+- ✅ **Interface Clean**: Ocultação global de barras de rolagem nativas para um visual moderno e fluido em todos os dispositivos.
+- ✅ **Integração com OpenRouter** suportando múltiplos modelos (incluindo Gemini 2.5/2.0 Flash, GPT-4o mini, Qwen 2.5 VL).
+- ✅ **Configuração serverless** e suporte completo para **Vercel** (`vercel.json`, `api/index.go`).
 - ✅ **Geração e Exportação de Formulário SEI**: Gerador completo de formulário de ocorrências e justificativas formatados com layout SEI e copiável como Rich Text (HTML).
 - ✅ **Extração de Período por Nome do Arquivo**: Fallback automático para descobrir mês/ano a partir do título do arquivo de upload (e.g. `abril2026.png`).
 - ✅ **Preservação de Saldo Original**: O saldo original da folha é preservado e pode ser copiado individualmente na célula divergente.

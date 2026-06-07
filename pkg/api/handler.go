@@ -79,7 +79,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":       "ok",
-		"version":      "0.3.0",
+		"version":      "1.0.0",
 		"name":         "Ponto Real Go",
 		"gemini_ready": hasKey,
 	})

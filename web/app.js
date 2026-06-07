@@ -4,7 +4,7 @@
 
 // --- Configuração ---
 const CONFIG = {
-    version: '0.3.0',
+    version: '1.0.0',
     mesAno: '',
     mesNome: '',
     apiBase: (window.location.protocol === 'file:' || (window.location.hostname === 'localhost' && window.location.port !== '8080' && window.location.port !== ''))

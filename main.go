@@ -64,7 +64,7 @@ func main() {
 	// Iniciar servidor
 	fmt.Printf("\n")
 	fmt.Printf("  ╔══════════════════════════════════════╗\n")
-	fmt.Printf("  ║       🕐 Ponto Real Go v0.3.0       ║\n")
+	fmt.Printf("  ║       🕐 Ponto Real Go v1.0.0       ║\n")
 	fmt.Printf("  ╠══════════════════════════════════════╣\n")
 	fmt.Printf("  ║  Server:  http://localhost:%s      ║\n", port)
 	fmt.Printf("  ║  API:     http://localhost:%s/api  ║\n", port)
