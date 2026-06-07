@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
@@ -321,6 +323,15 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Printf("[API] Extração: %d dias extraídos\n", len(timesheet.Dias))
 
+	// Preencher MesAno se estiver ausente ou inválido usando o nome do arquivo
+	if !isValidMesAno(timesheet.MesAno) {
+		filenameDate := extractDateFromFilename(header.Filename)
+		if filenameDate != "" {
+			timesheet.MesAno = filenameDate
+			fmt.Printf("[API] MesAno extraído do nome do arquivo '%s': %s\n", header.Filename, filenameDate)
+		}
+	}
+
 	// Etapa 2: Ajustar horários faltantes (lógica determinística)
 	fmt.Println("[API] Etapa 2/2: Ajustando horários faltantes...")
 	adjuster := extraction.NewRulesAdjuster(h.Engine)
@@ -540,4 +551,115 @@ func detectMimeType(filename string, data []byte) string {
 		}
 	}
 	return "application/octet-stream"
+}
+
+func isValidMesAno(mesAno string) bool {
+	if mesAno == "" {
+		return false
+	}
+	if strings.Contains(mesAno, "?") {
+		return false
+	}
+	parts := strings.Split(mesAno, "/")
+	if len(parts) != 2 {
+		return false
+	}
+	if len(parts[0]) != 2 || len(parts[1]) != 4 {
+		return false
+	}
+	return true
+}
+
+func extractDateFromFilename(filename string) string {
+	filename = strings.ToLower(filename)
+
+	type monthSearch struct {
+		name string
+		code string
+	}
+	monthsSearchList := []monthSearch{
+		{"fevereiro", "02"},
+		{"setembro", "09"},
+		{"novembro", "11"},
+		{"dezembro", "12"},
+		{"janeiro", "01"},
+		{"outubro", "10"},
+		{"agosto", "08"},
+		{"abril", "04"},
+		{"março", "03"},
+		{"marco", "03"},
+		{"junho", "06"},
+		{"julho", "07"},
+		{"maio", "05"},
+		{"fev", "02"},
+		{"set", "09"},
+		{"nov", "11"},
+		{"dez", "12"},
+		{"jan", "01"},
+		{"out", "10"},
+		{"ago", "08"},
+		{"abr", "04"},
+		{"mar", "03"},
+		{"jun", "06"},
+		{"jul", "07"},
+		{"mai", "05"},
+	}
+
+	detectedMonth := ""
+	for _, m := range monthsSearchList {
+		if strings.Contains(filename, m.name) {
+			detectedMonth = m.code
+			break
+		}
+	}
+
+	detectedYear := ""
+	// Tentar detectar ano de 4 dígitos (2020-2039)
+	reYear4 := regexp.MustCompile(`20[2-3]\d`)
+	detectedYear = reYear4.FindString(filename)
+
+	// Se não achou ano de 4 dígitos, procurar 2 dígitos após o nome do mês
+	if detectedYear == "" && detectedMonth != "" {
+		reYear2 := regexp.MustCompile(`\d{2}`)
+		allNums := reYear2.FindAllString(filename, -1)
+		for _, num := range allNums {
+			if num != detectedMonth {
+				detectedYear = "20" + num
+				break
+			}
+		}
+	}
+
+	// Se ainda não achou ano, usar o ano atual como fallback
+	if detectedYear == "" && detectedMonth != "" {
+		detectedYear = fmt.Sprintf("%d", time.Now().Year())
+	}
+
+	// Se não achou nome de mês, tentar padrão numérico como "04-2026" ou "04_2026" ou "2026_04"
+	if detectedMonth == "" {
+		reNumDate := regexp.MustCompile(`(?:0[1-9]|1[0-2])[_\-\/](20[2-3]\d)`)
+		match := reNumDate.FindStringSubmatch(filename)
+		if len(match) > 0 {
+			// A string pode ser algo como "04-2026"
+			detectedYear = match[1]
+			// O mês é os primeiros 2 dígitos
+			parts := strings.Split(regexp.MustCompile(`[_\-\/]`).ReplaceAllString(match[0], " "), " ")
+			if len(parts) > 0 {
+				detectedMonth = parts[0]
+			}
+		} else {
+			reNumDateRev := regexp.MustCompile(`(20[2-3]\d)[_\-\/](0[1-9]|1[0-2])`)
+			matchRev := reNumDateRev.FindStringSubmatch(filename)
+			if len(matchRev) == 3 {
+				detectedYear = matchRev[1]
+				detectedMonth = matchRev[2]
+			}
+		}
+	}
+
+	if detectedMonth != "" && detectedYear != "" {
+		return fmt.Sprintf("%s/%s", detectedMonth, detectedYear)
+	}
+
+	return ""
 }
