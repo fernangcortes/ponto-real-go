@@ -14,6 +14,7 @@ const CONFIG = {
 
 // --- Dados (começa vazio, populado via upload) ---
 let daysData = [];
+let activeServidor = {};
 
 // --- Utilidades ---
 const t2m = (t) => {
@@ -1091,6 +1092,7 @@ function loadFromAPI(data) {
 
     // Atualizar info do servidor
     if (ts.servidor && ts.servidor.nome) {
+        activeServidor = ts.servidor;
         const info = ts.servidor;
         document.getElementById('serverInfo').innerHTML =
             `<strong>${info.nome}</strong><br>${info.matricula || ''} • ${info.cpf || ''}`;
@@ -1440,8 +1442,9 @@ const loadMonthData = async (mesAno) => {
 
         // Atualizar info do servidor
         if (data.servidor && data.servidor.nome) {
+            activeServidor = data.servidor;
             document.getElementById('serverInfo').innerHTML =
-                `<strong>${data.servidor.nome}</strong>`;
+                `<strong>${activeServidor.nome}</strong><br>${activeServidor.matricula || ''} • ${activeServidor.cpf || ''}`;
         }
 
         // Substituir dados
@@ -1890,3 +1893,222 @@ setInterval(() => {
         checkPostUploadTour();
     }
 }, 2000);
+
+// ============================================
+// --- Exportação para o SEI ---
+// ============================================
+
+const saveSeiFields = () => {
+    localStorage.setItem('seiChefiaNome', document.getElementById('seiChefiaNome').value);
+    localStorage.setItem('seiChefiaLotacao', document.getElementById('seiChefiaLotacao').value);
+};
+
+const generateSeiHtml = () => {
+    const sNome = document.getElementById('seiServidorNome').value;
+    const sLotacao = document.getElementById('seiServidorLotacao').value;
+    const sCpf = document.getElementById('seiServidorCpf').value;
+    const sSuperior = document.getElementById('seiServidorSuperior').value;
+    const cNome = document.getElementById('seiChefiaNome').value;
+    const cLotacao = document.getElementById('seiChefiaLotacao').value;
+
+    // Filtrar dias com ocorrências (dias ajustados, onde d.o possui 0)
+    const occurrences = daysData.filter(d => d.o && d.o.includes(0));
+
+    let ocorrenciasRowsHtml = '';
+    let justificativasHtml = '';
+
+    occurrences.forEach(d => {
+        const diaFmt = String(d.d).padStart(2, '0');
+        const [mm, yyyy] = CONFIG.mesAno ? CONFIG.mesAno.split('/') : ['??', '????'];
+        const dataFull = `${diaFmt}/${mm}/${yyyy}`;
+
+        ocorrenciasRowsHtml += `<tr>
+            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${dataFull}</td>
+            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.e1 || '&nbsp;'}</td>
+            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.s1 || '&nbsp;'}</td>
+            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.e2 || '&nbsp;'}</td>
+            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.s2 || '&nbsp;'}</td>
+        </tr>`;
+
+        // Gerar frase de justificativa para o dia
+        const fields = ['e1', 's1', 'e2', 's2'];
+        const fields_names = ['a entrada', 'a saída do almoço', 'a entrada do almoço', 'a saída'];
+        const faltantes = [];
+        fields.forEach((f, fi) => {
+            if (d.o[fi] === 0) {
+                faltantes.push(fields_names[fi]);
+            }
+        });
+
+        if (faltantes.length > 0) {
+            const frase = `${dataFull} - O ponto não registrou ${faltantes.join(', ').replace(/,([^,]*)$/, ' e$1')}.`;
+            justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${frase}</p>`;
+        }
+    });
+
+    if (occurrences.length === 0) {
+        ocorrenciasRowsHtml = `<tr><td colspan="5" style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 10px; color: #888;">Nenhuma ocorrência gerada para este mês</td></tr>`;
+        justificativasHtml = `<p style="margin: 0; font-family: Arial, sans-serif; font-size: 12px; color: #888;">Nenhuma justificativa necessária</p>`;
+    }
+
+    const chefiaDisplay = cLotacao ? `${cNome} - ${cLotacao}` : cNome;
+
+    const fullHtml = `
+<div style="font-family: Arial, sans-serif; font-size: 12px; color: #000000; background-color: #ffffff; padding: 10px; max-width: 800px; margin: 0 auto;">
+    <p style="font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; margin-top: 0; margin-bottom: 5px;">1. Identificação</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px; border:1px solid #000000; margin-bottom: 15px;">
+        <tbody>
+            <tr>
+                <td style="width: 50%; font-weight: bold; text-align: center; background-color: #f2f2f2; border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Nome do Servidor</td>
+                <td style="width: 50%; font-weight: bold; text-align: center; background-color: #f2f2f2; border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Lotação</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${sNome || '&nbsp;'}</td>
+                <td style="border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${sLotacao || '&nbsp;'}</td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold; text-align: center; background-color: #f2f2f2; border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">CPF</td>
+                <td style="font-weight: bold; text-align: center; background-color: #f2f2f2; border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Unidade Administrativa Superior</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${sCpf || '&nbsp;'}</td>
+                <td style="border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${sSuperior || '&nbsp;'}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p style="font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">2. Ocorrência</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px; border:1px solid #000000; margin-bottom: 15px;">
+        <thead>
+            <tr style="background-color: #f2f2f2;">
+                <th style="font-weight: bold; text-align: center; border: 1px solid #000000; width: 20%; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Data</th>
+                <th style="font-weight: bold; text-align: center; border: 1px solid #000000; width: 20%; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Entrada</th>
+                <th style="font-weight: bold; text-align: center; border: 1px solid #000000; width: 20%; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Saída(Intervalo)</th>
+                <th style="font-weight: bold; text-align: center; border: 1px solid #000000; width: 20%; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Entrada(intervalo)</th>
+                <th style="font-weight: bold; text-align: center; border: 1px solid #000000; width: 20%; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Saída</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${ocorrenciasRowsHtml}
+        </tbody>
+    </table>
+
+    <p style="font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">3. Justificativa do Servidor (Obrigatório)</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px; border:1px solid #000000; margin-bottom: 15px;">
+        <tbody>
+            <tr style="background-color: #f2f2f2;">
+                <td style="font-weight: bold; border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Relatório de Atividades ou Documentação Comprobatória</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid #000000; padding: 10px; line-height: 1.5; font-family: Arial, sans-serif; font-size: 12px;">
+                    ${justificativasHtml}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p style="font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">4. Observação da Chefia Imediata (Opcional)</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px; border:1px solid #000000; margin-bottom: 15px;">
+        <tbody>
+            <tr style="background-color: #f2f2f2;">
+                <td style="font-weight: bold; border: 1px solid #000000; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">Descrição</td>
+            </tr>
+            <tr>
+                <td style="border: 1px solid #000000; height: 35px; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">&nbsp;</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p style="font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">5. Nome da Chefia Imediata</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px; border:1px solid #000000; margin-bottom: 15px;">
+        <tbody>
+            <tr>
+                <td style="border: 1px solid #000000; width: 50%; font-weight: bold; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${chefiaDisplay || '&nbsp;'}</td>
+                <td style="border: 1px solid #000000; width: 50%; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">&nbsp;</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p style="font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">6. Nome do Servidor</p>
+    <table border="1" cellspacing="0" cellpadding="6" style="width:100%; border-collapse:collapse; font-family:Arial, sans-serif; font-size:12px; border:1px solid #000000;">
+        <tbody>
+            <tr>
+                <td style="border: 1px solid #000000; font-weight: bold; height: 25px; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${sNome || '&nbsp;'}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>`;
+
+    return fullHtml;
+};
+
+window.updateSeiPreview = () => {
+    const container = document.getElementById('seiPreviewContainer');
+    if (container) {
+        container.innerHTML = generateSeiHtml();
+    }
+};
+
+window.openSeiModal = () => {
+    const modal = document.getElementById('seiModal');
+    if (!modal) return;
+
+    // Popular campos do Servidor a partir da variável global activeServidor
+    document.getElementById('seiServidorNome').value = activeServidor.nome || '';
+    document.getElementById('seiServidorLotacao').value = activeServidor.unidade || '';
+    document.getElementById('seiServidorCpf').value = activeServidor.cpf || '';
+    document.getElementById('seiServidorSuperior').value = activeServidor.orgao || '';
+
+    // Popular chefia a partir do localStorage
+    document.getElementById('seiChefiaNome').value = localStorage.getItem('seiChefiaNome') || '';
+    document.getElementById('seiChefiaLotacao').value = localStorage.getItem('seiChefiaLotacao') || '';
+
+    updateSeiPreview();
+
+    modal.classList.add('show');
+};
+
+window.closeSeiModal = () => {
+    const modal = document.getElementById('seiModal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
+};
+
+window.copySeiDocument = async () => {
+    saveSeiFields();
+    const htmlContent = generateSeiHtml();
+    
+    // Fallback de texto simples
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = htmlContent;
+    const textContent = tempDiv.innerText;
+
+    try {
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const blobText = new Blob([textContent], { type: 'text/plain' });
+        const data = [new ClipboardItem({ 'text/html': blob, 'text/plain': blobText })];
+        await navigator.clipboard.write(data);
+        
+        const copyBtn = document.getElementById('copySeiBtn');
+        const oldText = copyBtn.textContent;
+        copyBtn.textContent = 'Copiado! ✓';
+        copyBtn.style.background = 'var(--success)';
+        setTimeout(() => {
+            copyBtn.textContent = oldText;
+            copyBtn.style.background = '';
+        }, 2000);
+        
+        showToast('Formulário SEI copiado como Rich Text! Agora é só colar direto no SEI.', 'success');
+        closeSeiModal();
+    } catch (err) {
+        console.error('Erro ao copiar HTML: ', err);
+        try {
+            await navigator.clipboard.writeText(textContent);
+            showToast('Copiado como texto simples (limitação do navegador)', 'warning');
+            closeSeiModal();
+        } catch (err2) {
+            showToast('Erro ao copiar dados para a área de transferência', 'error');
+        }
+    }
+};
