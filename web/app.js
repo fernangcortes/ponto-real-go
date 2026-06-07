@@ -406,6 +406,60 @@ const saveState = (idx) => {
     backupRow[d.d] = { e1: d.e1, s1: d.s1, e2: d.e2, s2: d.s2 };
 };
 
+// --- Renderizar conteúdo da célula de Saldo (suporta original e real/calculado) ---
+const renderSaldoCellContent = (d, realDiff) => {
+    if (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao') {
+        const labels = { feriado: 'Feriado', folga: 'Folga', fds: 'FDS', convocacao: 'Convocação' };
+        const label = labels[d.dayTypeOverride] || d.dayTypeOverride;
+        return `<span style="color:var(--text-muted);font-size:10px;">${label}</span>`;
+    }
+
+    const tipo = classifyDay(d);
+    if (tipo === 'falta') {
+        const origSaldo = d.saldo || '';
+        if (origSaldo && origSaldo !== '-08:00') {
+            return `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+                <span class="original-saldo" onclick="event.stopPropagation(); copyCell('${origSaldo}', this)" title="Saldo original da imagem (Clique para copiar)" style="text-decoration:line-through; color:var(--text-muted); font-size:10px; cursor:pointer;">${origSaldo}</span>
+                <span class="real-saldo" onclick="event.stopPropagation(); copyCell('-08:00', this)" title="Saldo calculado (Clique para copiar)" style="color:var(--danger); font-weight:600; cursor:pointer;">-08:00</span>
+            </div>`;
+        }
+        return `<span onclick="event.stopPropagation(); copyCell('-08:00', this)" title="Saldo calculado (Clique para copiar)" style="color:var(--danger); font-weight:600; cursor:pointer;">-08:00</span>`;
+    }
+
+    // Determinar saldo real (calculado)
+    let realFormatted = '';
+    if (realDiff !== null) {
+        realFormatted = m2t(realDiff);
+    } else if (d.saldo_real) {
+        realFormatted = d.saldo_real;
+    }
+
+    const origSaldo = d.saldo || '';
+
+    // Se ambos existem e são diferentes
+    if (realFormatted && origSaldo && realFormatted.replace('+', '') !== origSaldo.replace('+', '')) {
+        const isNegReal = realFormatted.includes('-');
+        return `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+            <span class="original-saldo" onclick="event.stopPropagation(); copyCell('${origSaldo}', this)" title="Saldo original da imagem (Clique para copiar)" style="text-decoration:line-through; color:var(--text-muted); font-size:10px; cursor:pointer;">${origSaldo}</span>
+            <span class="real-saldo" onclick="event.stopPropagation(); copyCell('${realFormatted}', this)" title="Saldo calculado (Clique para copiar)" style="color:${isNegReal ? 'var(--danger)' : 'var(--success)'}; font-weight:600; cursor:pointer;">${realFormatted.replace('+', '')}</span>
+        </div>`;
+    }
+
+    // Se apenas o real/calculado existe (ou são iguais)
+    if (realFormatted) {
+        const isNeg = realFormatted.includes('-');
+        return `<span onclick="event.stopPropagation(); copyCell('${realFormatted}', this)" title="Saldo calculado (Clique para copiar)" style="color:${isNeg ? 'var(--danger)' : 'var(--text)'}; font-weight:600; cursor:pointer;">${realFormatted.replace('+', '')}</span>`;
+    }
+
+    // Se apenas o original existe
+    if (origSaldo) {
+        const isNeg = origSaldo.includes('-');
+        return `<span onclick="event.stopPropagation(); copyCell('${origSaldo}', this)" title="Saldo original da imagem (Clique para copiar)" style="color:${isNeg ? 'var(--danger)' : 'var(--text)'}; cursor:pointer;">${origSaldo}</span>`;
+    }
+
+    return `<span class="empty-time">——:——</span>`;
+};
+
 // --- Atualizar tudo ---
 const updateAll = () => {
     let totalSaldoOficial = 0;
@@ -473,35 +527,7 @@ const updateAll = () => {
         // Renderizar Saldo na tabela principal
         const saldoEl = document.getElementById(`m_saldo_${d.d}`);
         if (saldoEl) {
-            if (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao') {
-                // Feriado/Folga/FDS/Convocação override -> saldo neutro
-                const labels = { feriado: 'Feriado', folga: 'Folga', fds: 'FDS', convocacao: 'Convocação' };
-                const label = labels[d.dayTypeOverride] || d.dayTypeOverride;
-                saldoEl.innerHTML = `<span style="color:var(--text-muted);font-size:10px;">${label}</span>`;
-            } else if (tipo === 'dispensa' && realDiff !== null) {
-                // Dispensa: mostrar saldo recalculado
-                const origSaldo = d.saldo || '';
-                if (origSaldo && m2t(realDiff) !== origSaldo) {
-                    saldoEl.innerHTML = `<del style="color:var(--text-muted);font-size:10px">${origSaldo}</del><br><span style="color:${realDiff < 0 ? 'var(--danger)' : 'var(--success)'};font-weight:600">${m2t(realDiff)}</span>`;
-                } else {
-                    saldoEl.innerHTML = `<span style="color:${realDiff < 0 ? 'var(--danger)' : 'var(--success)'};font-weight:600">${m2t(realDiff)}</span>`;
-                }
-            } else if (realDiff !== null && isTimeValid(d.e1) && isTimeValid(d.s1) && isTimeValid(d.e2) && isTimeValid(d.s2)) {
-                // Matemática do realDiff
-                const realFormatted = m2t(realDiff).replace('+', '');
-                if (realFormatted !== d.saldo && d.saldo !== "") {
-                    // Diferente do oficial -> Riscado em cima, destacado embaixo
-                    saldoEl.innerHTML = `<del style="color:var(--text-muted);font-size:10px">${d.saldo}</del><br><span style="color:${realDiff < 0 ? 'var(--danger)' : 'var(--success)'};font-weight:600">${m2t(realDiff)}</span>`;
-                } else if (d.saldo !== "") {
-                    saldoEl.innerHTML = `<span style="color:${realDiff < 0 ? 'var(--danger)' : 'var(--text)'};font-weight:600">${m2t(realDiff)}</span>`;
-                } else {
-                    saldoEl.innerHTML = `<span style="color:${realDiff < 0 ? 'var(--danger)' : 'var(--text)'};font-weight:600">${m2t(realDiff)}</span>`;
-                }
-            } else if (tipo === 'falta') {
-                saldoEl.innerHTML = `<del style="color:var(--text-muted);font-size:10px">${d.saldo}</del><br><span style="color:var(--danger);font-weight:600">-08:00</span>`;
-            } else {
-                saldoEl.innerHTML = `<span style="color:${d.saldo.includes('-') ? 'var(--danger)' : 'var(--text)'};">${d.saldo}</span>`;
-            }
+            saldoEl.innerHTML = renderSaldoCellContent(d, realDiff);
         }
 
         if (d.o && d.o.includes(0)) {
@@ -648,19 +674,7 @@ const renderTables = () => {
                 return `<input type="time" id="m_${f}_${d.d}" value="${v}" ${isOrig ? `class="readonly draggable-time"` : `${canDrag} class="draggable-time"`} ${canDrag} onfocus="saveState(${i})" onblur="syncChange(${i}, '${f}', this.value)">`;
             };
 
-            let saldoHtml = '';
-            if (d.saldo_real && d.saldo_real !== d.saldo && d.saldo !== "") {
-                const isNeg = d.saldo_real.includes('-');
-                saldoHtml = `<del style="color:var(--text-muted);font-size:10px">${d.saldo}</del><br><span style="color:${isNeg ? 'var(--danger)' : 'var(--success)'};font-weight:600">${d.saldo_real.replace('+', '')}</span>`;
-            } else if (d.saldo_real && d.saldo !== "") {
-                const isNeg = d.saldo_real.includes('-');
-                saldoHtml = `<span style="color:${isNeg ? 'var(--danger)' : 'var(--text)'};font-weight:600">${d.saldo_real.replace('+', '')}</span>`;
-            } else if (d.saldo !== "") {
-                const isNeg = d.saldo.includes('-');
-                saldoHtml = `<span style="color:${isNeg ? 'var(--danger)' : 'var(--text)'};">${d.saldo}</span>`;
-            }
-
-            const tdSaldo = `<td id="m_saldo_${d.d}" class="saldo-cell" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;cursor:pointer" onclick="copyCell('${d.saldo}', this)" title="Saldo orig: ${d.saldo} — Clique p/ copiar">${saldoHtml}</td>`;
+            const tdSaldo = `<td id="m_saldo_${d.d}" class="saldo-cell" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;" title="Clique nos valores para copiar">${renderSaldoCellContent(d, null)}</td>`;
 
             let diaDisplay = diaFmt;
             if (tipo === 'falta') {

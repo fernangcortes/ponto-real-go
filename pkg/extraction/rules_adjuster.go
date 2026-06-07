@@ -63,7 +63,6 @@ func (r *RulesAdjuster) Adjust(ts *models.Timesheet) *models.Timesheet {
 		}
 
 		if filled == 0 {
-			d.Saldo = "-" + formatMinsDuration(r.Engine.Config.CargaHorariaDiaria)
 			continue
 		}
 
@@ -82,14 +81,6 @@ func (r *RulesAdjuster) Adjust(ts *models.Timesheet) *models.Timesheet {
 		afternoon := s2 - e2
 		total := morning + afternoon
 		d.ExpSaldo = formatMinsDuration(total)
-		diff := total - r.Engine.Config.CargaHorariaDiaria
-		if diff == 0 {
-			d.Saldo = "00:00"
-		} else if diff > 0 {
-			d.Saldo = "+" + formatMinsDuration(diff)
-		} else {
-			d.Saldo = "-" + formatMinsDuration(-diff)
-		}
 	}
 
 	return &result
