@@ -18,27 +18,38 @@ const settingsFile = "settings.json"
 
 // AppSettings contém configurações salvas localmente.
 type AppSettings struct {
-	GeminiAPIKey string `json:"gemini_api_key"`
+	Provider         string `json:"provider"` // "gemini" ou "openrouter"
+	GeminiAPIKey     string `json:"gemini_api_key,omitempty"`
+	OpenRouterAPIKey string `json:"open_router_api_key,omitempty"`
 }
 
 // Handler contém os handlers HTTP da API.
 type Handler struct {
-	Engine *rules.Engine
-	APIKey string
+	Engine   *rules.Engine
+	Settings AppSettings
 }
 
 // NewHandler cria um novo Handler com o motor de regras.
 func NewHandler(engine *rules.Engine) *Handler {
 	h := &Handler{
 		Engine: engine,
-		APIKey: os.Getenv("GEMINI_API_KEY"),
 	}
-	// Se não tem env var, tentar carregar do settings.json
-	if h.APIKey == "" {
-		if s, err := loadSettings(); err == nil && s.GeminiAPIKey != "" {
-			h.APIKey = s.GeminiAPIKey
-			fmt.Println("[API] Gemini API key carregada de settings.json")
-		}
+	s, err := loadSettings()
+	if err == nil {
+		h.Settings = s
+	}
+
+	// Normalizar provider
+	if h.Settings.Provider == "" {
+		h.Settings.Provider = "gemini"
+	}
+
+	// Sobrescrever/preencher com Env Vars se estiverem vazias
+	if h.Settings.GeminiAPIKey == "" {
+		h.Settings.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
+	}
+	if h.Settings.OpenRouterAPIKey == "" {
+		h.Settings.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
 	}
 	return h
 }
@@ -61,35 +72,47 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 // Health retorna status do servidor.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	hasKey := h.APIKey != ""
+	hasKey := false
+	if h.Settings.Provider == "openrouter" {
+		hasKey = h.Settings.OpenRouterAPIKey != ""
+	} else {
+		hasKey = h.Settings.GeminiAPIKey != ""
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":       "ok",
-		"version":      "0.2.0",
+		"version":      "0.3.0",
 		"name":         "Ponto Real Go",
 		"gemini_ready": hasKey,
 	})
 }
 
-// GetSettings retorna as configurações salvas (mascarando a API key).
+// GetSettings retorna as configurações salvas (mascarando as chaves).
 func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
-	masked := ""
-	if h.APIKey != "" {
-		if len(h.APIKey) > 8 {
-			masked = h.APIKey[:4] + "..." + h.APIKey[len(h.APIKey)-4:]
-		} else {
-			masked = "****"
+	maskKey := func(key string) string {
+		if key == "" {
+			return ""
 		}
+		if len(key) > 8 {
+			return key[:4] + "..." + key[len(key)-4:]
+		}
+		return "****"
 	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"has_key":    h.APIKey != "",
-		"masked_key": masked,
+		"provider":              h.Settings.Provider,
+		"has_gemini_key":        h.Settings.GeminiAPIKey != "",
+		"masked_gemini_key":     maskKey(h.Settings.GeminiAPIKey),
+		"has_openrouter_key":    h.Settings.OpenRouterAPIKey != "",
+		"masked_openrouter_key": maskKey(h.Settings.OpenRouterAPIKey),
 	})
 }
 
-// SaveSettings salva a API key em settings.json.
+// SaveSettings salva a configuração em settings.json.
 func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		GeminiAPIKey string `json:"gemini_api_key"`
+		Provider         string `json:"provider"`
+		GeminiAPIKey     string `json:"gemini_api_key"`
+		OpenRouterAPIKey string `json:"open_router_api_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
@@ -97,26 +120,34 @@ func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	key := strings.TrimSpace(req.GeminiAPIKey)
-	if key == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "API key não pode ser vazia"})
-		return
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = "gemini"
 	}
 
-	// Salvar no arquivo
-	s := AppSettings{GeminiAPIKey: key}
-	if err := saveSettings(s); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar: " + err.Error()})
-		return
+	// Atualizar em memória mantendo chaves antigas se vierem vazias (placeholders)
+	geminiKey := strings.TrimSpace(req.GeminiAPIKey)
+	if geminiKey != "" {
+		h.Settings.GeminiAPIKey = geminiKey
 	}
+	orKey := strings.TrimSpace(req.OpenRouterAPIKey)
+	if orKey != "" {
+		h.Settings.OpenRouterAPIKey = orKey
+	}
+	h.Settings.Provider = provider
 
-	// Atualizar em memória
-	h.APIKey = key
-	fmt.Println("[API] Gemini API key salva em settings.json")
+	// Salvar no arquivo (se não estiver no Vercel)
+	if os.Getenv("VERCEL") != "1" {
+		if err := saveSettings(h.Settings); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar settings.json: " + err.Error()})
+			return
+		}
+		fmt.Println("[API] Configurações salvas em settings.json")
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"ok":      true,
-		"message": "API key salva com sucesso!",
+		"message": "Configurações salvas com sucesso!",
 	})
 }
 
@@ -143,6 +174,9 @@ func saveSettings(s AppSettings) error {
 
 // settingsFilePath retorna o caminho do settings.json (mesmo dir do executável ou CWD).
 func settingsFilePath() string {
+	if os.Getenv("VERCEL") == "1" {
+		return "/tmp/settings.json"
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return settingsFile
@@ -153,18 +187,34 @@ func settingsFilePath() string {
 // GetModels retorna os modelos disponíveis para extração.
 func (h *Handler) GetModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"models":  extraction.AvailableModels(),
-		"has_key": h.APIKey != "",
+		"provider":          h.Settings.Provider,
+		"gemini_models":     extraction.GeminiModels(),
+		"openrouter_models": extraction.OpenRouterModels(),
+		"has_gemini_key":    h.Settings.GeminiAPIKey != "",
+		"has_or_key":        h.Settings.OpenRouterAPIKey != "",
 	})
 }
 
-// Upload recebe um PDF/PNG via multipart, extrai dados via Gemini e retorna Timesheet.
+// Upload recebe um PDF/PNG via multipart, extrai dados via Gemini/OpenRouter e retorna Timesheet.
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	if h.APIKey == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "API key não configurada. Clique no ⚙️ no topo para configurar sua chave Gemini.",
-		})
-		return
+	// Validar chaves com base no provedor
+	var apiKey string
+	if h.Settings.Provider == "openrouter" {
+		apiKey = h.Settings.OpenRouterAPIKey
+		if apiKey == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "Chave da API OpenRouter não configurada. Clique no ⚙️ no topo para configurá-la.",
+			})
+			return
+		}
+	} else {
+		apiKey = h.Settings.GeminiAPIKey
+		if apiKey == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "Chave da API Gemini não configurada. Clique no ⚙️ no topo para configurá-la.",
+			})
+			return
+		}
 	}
 
 	// Limitar upload a 10MB
@@ -217,26 +267,50 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Modelo selecionado pelo usuário
 	model := r.FormValue("model")
 	if model == "" {
-		model = "gemini-3.1-flash-lite-preview"
+		if h.Settings.Provider == "openrouter" {
+			model = "google/gemini-2.0-flash"
+		} else {
+			model = "gemini-3.1-flash-lite-preview"
+		}
 	}
 
-	// Validar modelo
-	validModels := map[string]bool{
-		"gemini-3.1-flash-lite-preview": true,
-		"gemini-3.1-pro-preview":        true,
-	}
-	if !validModels[model] {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("Modelo inválido: %s", model),
-		})
-		return
+	// Validar modelo com base no provedor
+	if h.Settings.Provider == "openrouter" {
+		validModels := map[string]bool{
+			"google/gemini-2.0-flash":            true,
+			"openai/gpt-4o-mini":                  true,
+			"qwen/qwen-2.5-vl-72b-instruct":      true,
+			"meta/llama-3.2-11b-vision-instruct": true,
+		}
+		if !validModels[model] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("Modelo OpenRouter inválido: %s", model),
+			})
+			return
+		}
+	} else {
+		validModels := map[string]bool{
+			"gemini-3.1-flash-lite-preview": true,
+			"gemini-3.1-pro-preview":        true,
+		}
+		if !validModels[model] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": fmt.Sprintf("Modelo Gemini inválido: %s", model),
+			})
+			return
+		}
 	}
 
-	fmt.Printf("[API] Upload: %s (%s, %d bytes) modelo: %s\n", header.Filename, mimeType, len(fileBytes), model)
+	fmt.Printf("[API] Upload: %s (%s, %d bytes) provedor: %s, modelo: %s\n", header.Filename, mimeType, len(fileBytes), h.Settings.Provider, model)
 
 	// Etapa 1: Extrair dados brutos via Vision
-	fmt.Println("[API] Etapa 1/2: Extraindo dados...")
-	extractor := extraction.NewGeminiExtractor(h.APIKey, model)
+	fmt.Printf("[API] Etapa 1/2: Extraindo dados com %s...\n", h.Settings.Provider)
+	var extractor extraction.Extractor
+	if h.Settings.Provider == "openrouter" {
+		extractor = extraction.NewOpenRouterExtractor(apiKey, model)
+	} else {
+		extractor = extraction.NewGeminiExtractor(apiKey, model)
+	}
 	timesheet, err := extractor.Extract(fileBytes, mimeType)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{

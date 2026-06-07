@@ -7,7 +7,9 @@ const CONFIG = {
     version: '0.3.0',
     mesAno: '',
     mesNome: '',
-    apiBase: '',
+    apiBase: (window.location.protocol === 'file:' || (window.location.hostname === 'localhost' && window.location.port !== '8080' && window.location.port !== ''))
+        ? 'http://localhost:8080'
+        : '',
 };
 
 // --- Dados (começa vazio, populado via upload) ---
@@ -1016,7 +1018,7 @@ async function processUpload(file, model) {
         formData.append('file', file);
         formData.append('model', model);
 
-        const response = await fetch('/api/upload', {
+        const response = await fetch(`${CONFIG.apiBase}/api/upload`, {
             method: 'POST',
             body: formData,
         });
@@ -1119,18 +1121,95 @@ const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettingsModal = document.getElementById('closeSettingsModal');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+const apiProviderSelect = document.getElementById('apiProvider');
 const geminiApiKeyInput = document.getElementById('geminiApiKey');
+const openRouterApiKeyInput = document.getElementById('openRouterApiKey');
+const geminiKeyGroup = document.getElementById('geminiKeyGroup');
+const openRouterKeyGroup = document.getElementById('openRouterKeyGroup');
+
+// Modelo selectors da tela de upload
+const modelSelect = document.getElementById('modelSelect');
+const modelSelect2 = document.getElementById('modelSelect2');
+
+// Armazenamento local temporário dos modelos
+let availableModels = {
+    provider: 'gemini',
+    gemini_models: [],
+    openrouter_models: []
+};
+
+// Atualiza os seletores de modelo do upload conforme o provedor ativo
+const updateModelSelectors = () => {
+    const provider = apiProviderSelect.value;
+    const models = provider === 'openrouter' ? availableModels.openrouter_models : availableModels.gemini_models;
+    
+    // Atualizar selects no DOM
+    [modelSelect, modelSelect2].forEach(select => {
+        if (!select) return;
+        select.innerHTML = '';
+        models.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.name;
+            opt.title = m.description;
+            select.appendChild(opt);
+        });
+    });
+};
+
+// Alternar exibição dos campos de chave com base no provedor selecionado
+apiProviderSelect.addEventListener('change', () => {
+    const val = apiProviderSelect.value;
+    if (val === 'openrouter') {
+        geminiKeyGroup.style.display = 'none';
+        openRouterKeyGroup.style.display = 'block';
+    } else {
+        geminiKeyGroup.style.display = 'block';
+        openRouterKeyGroup.style.display = 'none';
+    }
+});
+
+// Carrega os modelos disponíveis da API
+const loadModelsList = async () => {
+    try {
+        const res = await fetch(`${CONFIG.apiBase}/api/models`);
+        if (res.ok) {
+            const data = await res.json();
+            availableModels.provider = data.provider || 'gemini';
+            availableModels.gemini_models = data.gemini_models || [];
+            availableModels.openrouter_models = data.openrouter_models || [];
+            
+            apiProviderSelect.value = availableModels.provider;
+            apiProviderSelect.dispatchEvent(new Event('change'));
+            updateModelSelectors();
+        }
+    } catch (e) {
+        console.error('Erro ao buscar modelos:', e);
+    }
+};
 
 const openSettings = async () => {
     settingsModal.classList.add('show');
     try {
-        const res = await fetch('/api/settings');
+        const res = await fetch(`${CONFIG.apiBase}/api/settings`);
         if (res.ok) {
             const data = await res.json();
-            if (data.has_key) {
-                geminiApiKeyInput.placeholder = data.masked_key;
-                geminiApiKeyInput.value = ''; // não expor a chave real
+            apiProviderSelect.value = data.provider || 'gemini';
+            apiProviderSelect.dispatchEvent(new Event('change'));
+
+            if (data.has_gemini_key) {
+                geminiApiKeyInput.placeholder = data.masked_gemini_key || 'Chave configurada';
+            } else {
+                geminiApiKeyInput.placeholder = 'AIzaSy...';
             }
+            geminiApiKeyInput.value = '';
+
+            if (data.has_openrouter_key) {
+                openRouterApiKeyInput.placeholder = data.masked_openrouter_key || 'Chave configurada';
+            } else {
+                openRouterApiKeyInput.placeholder = 'sk-or-...';
+            }
+            openRouterApiKeyInput.value = '';
         }
     } catch (e) {
         console.error('Erro ao carregar settings:', e);
@@ -1140,31 +1219,45 @@ const openSettings = async () => {
 const closeSettings = () => {
     settingsModal.classList.remove('show');
     geminiApiKeyInput.value = '';
+    openRouterApiKeyInput.value = '';
 };
 
 const saveSettings = async () => {
-    const key = geminiApiKeyInput.value.trim();
-    if (!key && !geminiApiKeyInput.placeholder.includes('*') && !geminiApiKeyInput.placeholder.includes('...')) {
-        showToast('A chave não pode estar vazia', 'error');
+    const provider = apiProviderSelect.value;
+    const geminiKey = geminiApiKeyInput.value.trim();
+    const orKey = openRouterApiKeyInput.value.trim();
+
+    // Validação básica se novas chaves estão sendo fornecidas
+    if (provider === 'gemini' && !geminiKey && !geminiApiKeyInput.placeholder.includes('*') && !geminiApiKeyInput.placeholder.includes('...')) {
+        showToast('A chave Gemini não pode estar vazia', 'error');
         return;
     }
-    if (!key) {
-        closeSettings();
-        return; // não mudou nada
+    if (provider === 'openrouter' && !orKey && !openRouterApiKeyInput.placeholder.includes('*') && !openRouterApiKeyInput.placeholder.includes('...')) {
+        showToast('A chave OpenRouter não pode estar vazia', 'error');
+        return;
     }
 
     try {
         saveSettingsBtn.textContent = 'Salvando...';
         saveSettingsBtn.disabled = true;
-        const res = await fetch('/api/settings', {
+        
+        const payload = {
+            provider: provider,
+            gemini_api_key: geminiKey,
+            open_router_api_key: orKey
+        };
+
+        const res = await fetch(`${CONFIG.apiBase}/api/settings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ gemini_api_key: key })
+            body: JSON.stringify(payload)
         });
         const data = await res.json();
 
         if (res.ok) {
-            showToast('Chave salva com sucesso!', 'success');
+            showToast('Configurações salvas com sucesso!', 'success');
+            // Recarregar os seletores de modelo baseados nas novas configurações
+            updateModelSelectors();
             closeSettings();
         } else {
             showToast(data.error || 'Erro ao salvar', 'error');
@@ -1183,6 +1276,9 @@ saveSettingsBtn.addEventListener('click', saveSettings);
 settingsModal.addEventListener('click', (e) => {
     if (e.target === settingsModal) closeSettings();
 });
+
+// Carregar modelos e inicializar
+loadModelsList();
 
 // ============================================
 // Persistência por Mês
@@ -1253,7 +1349,7 @@ const saveCurrentMonth = async () => {
     };
 
     try {
-        const res = await fetch(`/api/month/${mesAnoToPath(CONFIG.mesAno)}`, {
+        const res = await fetch(`${CONFIG.apiBase}/api/month/${mesAnoToPath(CONFIG.mesAno)}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -1274,7 +1370,7 @@ const saveCurrentMonth = async () => {
 // --- Carregar lista de meses ---
 const refreshMonthList = async () => {
     try {
-        const res = await fetch('/api/months');
+        const res = await fetch(`${CONFIG.apiBase}/api/months`);
         if (res.ok) {
             savedMonths = await res.json();
             updateMonthSelector();
@@ -1319,7 +1415,7 @@ const updateMonthSelector = () => {
 // --- Carregar um mês salvo ---
 const loadMonthData = async (mesAno) => {
     try {
-        const res = await fetch(`/api/month/${mesAnoToPath(mesAno)}`);
+        const res = await fetch(`${CONFIG.apiBase}/api/month/${mesAnoToPath(mesAno)}`);
         if (!res.ok) {
             showToast('Mês não encontrado', 'error');
             return;

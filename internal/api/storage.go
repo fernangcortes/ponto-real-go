@@ -54,6 +54,11 @@ func filenameToMesAno(filename string) string {
 
 // SaveMonth salva o estado completo de um mês em disco.
 func SaveMonth(data MonthData) error {
+	if os.Getenv("VERCEL") == "1" {
+		fmt.Println("[Storage] Executando no Vercel: persistência de mês desativada.")
+		return nil
+	}
+
 	if err := ensureDataDir(); err != nil {
 		return fmt.Errorf("erro ao criar diretório: %w", err)
 	}
@@ -76,6 +81,10 @@ func SaveMonth(data MonthData) error {
 
 // LoadMonth carrega o estado de um mês do disco.
 func LoadMonth(mesAno string) (*MonthData, error) {
+	if os.Getenv("VERCEL") == "1" {
+		return nil, fmt.Errorf("persistência desativada no Vercel")
+	}
+
 	path := filepath.Join(dataDir, mesAnoToFilename(mesAno))
 	bytes, err := os.ReadFile(path)
 	if err != nil {
@@ -92,6 +101,10 @@ func LoadMonth(mesAno string) (*MonthData, error) {
 
 // ListMonths retorna a lista de meses salvos, ordenada do mais recente ao mais antigo.
 func ListMonths() ([]MonthSummary, error) {
+	if os.Getenv("VERCEL") == "1" {
+		return []MonthSummary{}, nil
+	}
+
 	if err := ensureDataDir(); err != nil {
 		return nil, err
 	}
@@ -138,6 +151,9 @@ func ListMonths() ([]MonthSummary, error) {
 
 // DeleteMonth remove um mês salvo.
 func DeleteMonth(mesAno string) error {
+	if os.Getenv("VERCEL") == "1" {
+		return nil
+	}
 	path := filepath.Join(dataDir, mesAnoToFilename(mesAno))
 	return os.Remove(path)
 }

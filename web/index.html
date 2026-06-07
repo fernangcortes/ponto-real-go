@@ -249,12 +249,25 @@
                 <button class="icon-btn" id="closeSettingsModal" aria-label="Fechar">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="apiProvider">Provedor de IA</label>
+                    <select id="apiProvider" class="model-select" style="width: 100%; height: 38px; border-radius: 6px;">
+                        <option value="gemini">Google Gemini (Direto)</option>
+                        <option value="openrouter">OpenRouter</option>
+                    </select>
+                </div>
+                <div class="form-group" id="geminiKeyGroup">
                     <label for="geminiApiKey">Chave da API Gemini (Google AI Studio)</label>
                     <input type="password" id="geminiApiKey" placeholder="AIzaSy...">
                     <small>Sua chave fica salva localmente no arquivo settings.json. <a
                             href="https://aistudio.google.com/app/apikey" target="_blank"
                             style="color:var(--primary)">Obter uma chave</a></small>
+                </div>
+                <div class="form-group" id="openRouterKeyGroup" style="display: none;">
+                    <label for="openRouterApiKey">Chave da API OpenRouter</label>
+                    <input type="password" id="openRouterApiKey" placeholder="sk-or-...">
+                    <small>Obtenha sua chave em <a href="https://openrouter.ai/keys" target="_blank"
+                            style="color:var(--primary)">openrouter.ai/keys</a></small>
                 </div>
             </div>
             <div class="modal-footer">

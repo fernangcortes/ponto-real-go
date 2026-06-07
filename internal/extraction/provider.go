@@ -11,20 +11,55 @@ type Extractor interface {
 	Extract(fileBytes []byte, mimeType string) (*models.Timesheet, error)
 }
 
-// AvailableModels retorna a lista de modelos disponíveis para extração.
+// AvailableModels retorna a lista de modelos padrão (backward compatibility).
 func AvailableModels() []ModelOption {
+	return GeminiModels()
+}
+
+// GeminiModels retorna os modelos da API direta do Google Gemini.
+func GeminiModels() []ModelOption {
 	return []ModelOption{
 		{
 			ID:          "gemini-3.1-flash-lite-preview",
-			Name:        "Gemini 3.1 Flash Lite (Preview)",
+			Name:        "⚡ Gemini 3.1 Flash Lite",
 			Description: "Mais rápido e econômico. Bom para folhas de ponto com layout padrão.",
 			Speed:       "Rápido",
 		},
 		{
 			ID:          "gemini-3.1-pro-preview",
-			Name:        "Gemini 3.1 Pro (Preview)",
+			Name:        "🧠 Gemini 3.1 Pro",
 			Description: "Mais preciso. Recomendado para folhas com layout complexo ou baixa qualidade.",
 			Speed:       "Moderado",
+		},
+	}
+}
+
+// OpenRouterModels retorna os modelos disponíveis via OpenRouter.
+func OpenRouterModels() []ModelOption {
+	return []ModelOption{
+		{
+			ID:          "google/gemini-2.0-flash",
+			Name:        "⚡ Gemini 2.0 Flash",
+			Description: "Melhor custo-benefício. Leitura rápida e precisa de tabelas estruturadas.",
+			Speed:       "Rápido",
+		},
+		{
+			ID:          "openai/gpt-4o-mini",
+			Name:        "🧠 GPT-4o mini",
+			Description: "Econômico e altamente preciso na aderência de esquemas JSON estruturados.",
+			Speed:       "Rápido",
+		},
+		{
+			ID:          "qwen/qwen-2.5-vl-72b-instruct",
+			Name:        "👁️ Qwen 2.5 VL 72B",
+			Description: "Estado da arte para OCR e tabelas densas, fotos desalinhadas ou digitalizações de baixa qualidade.",
+			Speed:       "Moderado",
+		},
+		{
+			ID:          "meta/llama-3.2-11b-vision-instruct",
+			Name:        "🦙 Llama 3.2 11B Vision",
+			Description: "Modelo leve e ultra-econômico para detecção e OCR básicos.",
+			Speed:       "Rápido",
 		},
 	}
 }
