@@ -24,21 +24,28 @@ Servidores públicos que precisam:
 
 ## ✨ Funcionalidades
 
-### 🤖 Leitura Inteligente por IA
-- Upload de imagem (PNG, JPEG) ou PDF da folha de ponto
-- Extração automática via **Google Gemini** (Flash Lite ou Pro)
-- Detecção automática de horários, saldos e ocorrências
+### 🤖 Leitura Inteligente por IA (Multi-provedor)
+- Upload de imagem (PNG, JPEG, WebP) ou PDF da folha de ponto.
+- Extração automática via **Google Gemini** (Gemini 2.5 Flash, Gemini 3.1 Flash Lite/Pro).
+- Suporte nativo ao **OpenRouter** para modelos variados (Gemini 2.5/2.0 Flash, GPT-4o mini, Qwen 2.5 VL, Llama 3.2).
+- **Extração por Nome de Arquivo**: se o Vision da IA falhar em achar o mês/ano no papel, o sistema analisa o nome do arquivo enviado (e.g. `abril2026.png`) e deduz o período.
+
+### 💼 Exportação Direta para o SEI (Rich Text)
+- Geração do formulário de frequência completo nos padrões e tabelas do **SEI** (Sistema Eletrônico de Informações).
+- Copia toda a estrutura formatada com bordas e cores como Rich Text (HTML) para que o usuário possa colar direto no editor do SEI (CKEditor).
+- Exibe somente os dias ajustados e suas respectivas justificativas em formato padronizado.
+- Lembra os dados da sua Chefia Imediata localmente para facilitar futuros preenchimentos.
 
 ### 📊 Cálculo Automático
-- Cálculo de saldo diário (horas trabalhadas vs. jornada de 6h)
-- Saldo total do mês (extraído vs. calculado)
-- Contagem de faltas, dias ajustados e completos
-- Detecção automática de fins de semana via calendário real
+- Cálculo de saldo diário (horas trabalhadas vs. jornada configurada).
+- Saldo total do mês (extraído vs. calculado).
+- Contagem de faltas, dias ajustados e completos.
+- Detecção automática de fins de semana via calendário real.
 
 ### 🏷️ Tipos de Dia
 | Tipo | Descrição |
 |------|-----------|
-| **Útil** | Dia normal de trabalho (jornada 6h) |
+| **Útil** | Dia normal de trabalho (jornada configurada) |
 | **FDS** | Fim de semana (auto-detectado pelo calendário) |
 | **Dispensa** | Meio período — calcula horas trabalhadas parcialmente |
 | **Feriado** | Feriado — sem jornada obrigatória |
@@ -46,35 +53,34 @@ Servidores públicos que precisam:
 | **Convocação** | Dia de convocação especial |
 
 ### ✏️ Edição Inteligente
-- Horários editáveis em azul (gerados automaticamente)
-- Horários originais preservados em preto
-- Auto-complemento inteligente de horários faltantes
-- Modo Dispensa: edição parcial sem auto-completar
+- Horários editáveis em azul (gerados automaticamente).
+- Horários originais preservados em preto.
+- Auto-complemento inteligente de horários faltantes.
+- Modo Dispensa: edição parcial sem auto-completar.
 
-### 📋 Sistema de Cópia
-- **Clique em qualquer célula** para copiar o valor
-- **Copiar Linha** — dia + horários + saldo original
-- **Copiar Tabela** — dados tabulados (TAB-separated, Excel-compatível)
-- **Copiar Ocorrência** / **Copiar Justificativa** separadamente
-- **Copiar Tudo** — relatório completo de uma vez
-- Saldo original sempre acessível via tooltip
+### 📋 Sistema de Cópia e Saldos
+- **Saldo Original Preservado**: O saldo da imagem original nunca é apagado. Se houver divergência com o calculado, a tabela exibe ambos (o original riscado e o calculado em destaque).
+- **Cópia Unificada**: Clique em qualquer célula de horário ou saldo para copiar. No caso de divergência de saldos, você pode clicar em cima de cada um individualmente para copiar apenas o que desejar.
+- **Copiar Linha** — dia + horários + saldo original.
+- **Copiar Tabela** — dados tabulados (TAB-separated, Excel-compatível).
+- **Copiar Ocorrência** / **Copiar Justificativa** separadamente.
+- **Copiar Tudo** — relatório completo de uma vez.
 
-### 💾 Persistência e Navegação
-- Salvamento automático de cada mês analisado
-- Navegação entre meses com seletor e setas
-- Indicador de salvamento pendente
+### 💾 Persistência Flexível
+- Salvamento automático de cada mês analisado localmente (`data/`).
+- **Deploy Serverless**: Modo stateless inteligente para deploys rápidos em ambientes como o Vercel, onde a persistência de disco local é desabilitada mantendo o funcionamento estático perfeito.
 
 ### 🎓 Tutorial Interativo
-- Tour guiado para novos usuários (pré e pós-upload)
-- Spotlight em cada elemento com explicação
-- Navegação por teclado (← → Enter Esc)
-- Botão "?" para reiniciar a qualquer momento
+- Tour guiado para novos usuários (pré e pós-upload).
+- Spotlight em cada elemento com explicação.
+- Navegação por teclado (← → Enter Esc).
+- Botão "?" para reiniciar a qualquer momento.
 
 ### 🎨 Interface
-- Tema claro e escuro (toggle no header)
-- Design responsivo e moderno
-- Feedback visual em todas as ações (toasts)
-- Favicon personalizado
+- Tema claro e escuro (toggle no header).
+- Design responsivo e moderno.
+- Feedback visual em todas as ações (toasts).
+- Favicon personalizado.
 
 ---
 
@@ -125,41 +131,53 @@ Para hospedar o **Ponto Real Go** no [Render](https://render.com):
 ```
 ponto-real-go/
 ├── main.go            # Servidor HTTP e bootstrap
-├── web/               # Frontend (embed no binário)
+├── vercel.json        # Configuração de deploys no Vercel
+├── api/
+│   └── index.go       # Ponto de entrada Serverless para Vercel
+├── web/               # Frontend (embed no binário ou CDN no Vercel)
 │   ├── index.html     # Interface principal
 │   ├── app.js         # Lógica do frontend
 │   ├── styles.css     # Estilos
 │   └── favicon.*      # Ícones
-├── internal/
+├── pkg/               # Pacotes Go (antigo internal/)
 │   ├── api/
 │   │   ├── handler.go         # Handlers HTTP (upload, CRUD)
 │   │   ├── middleware.go      # CORS e middlewares
-│   │   └── storage.go         # Persistência em JSON
+│   │   └── storage.go         # Persistência em JSON (desativa se VERCEL=1)
 │   ├── extraction/
 │   │   ├── provider.go        # Interface de extração IA
 │   │   ├── gemini.go          # Integração Google Gemini
+│   │   ├── openrouter.go      # Integração OpenRouter API
 │   │   ├── prompt.go          # Prompt de extração
 │   │   ├── prompt_adjust.go   # Prompt de ajuste
-│   │   └── rules_adjuster.go  # Ajuste baseado em regras
+│   │   └── rules_adjuster.go  # Ajuste baseado em regras (preserva saldo original)
 │   ├── models/
 │   │   └── timesheet.go       # Modelos de dados
 │   └── rules/
 │       ├── engine.go          # Motor de regras
 │       ├── engine_test.go     # Testes
 │       └── rules.json         # Regras UEG
-└── data/                      # Dados salvos (meses)
+└── data/                      # Dados salvos (meses, apenas localmente)
 ```
 
 ### Stack Tecnológica
-- **Backend**: Go (net/http, embed)
-- **Frontend**: HTML5, CSS3, JavaScript vanilla
-- **IA**: Google Gemini API (gemini-2.0-flash-lite, gemini-2.0-pro)
-- **Persistência**: JSON em disco local
+- **Backend**: Go (net/http, embed, serverless-ready)
+- **Frontend**: HTML5, CSS3, JavaScript vanilla (Rich-Text clipboard support)
+- **IA**: Google Gemini API & OpenRouter (Gemini 2.5 Flash, GPT-4o mini, Qwen 2.5 VL)
+- **Persistência**: JSON em disco local (opcional)
 - **Tipografia**: Inter + JetBrains Mono (Google Fonts)
 
 ---
 
 ## 📝 Changelog
+
+### v0.4.0 — OpenRouter, Vercel & SEI (Junho 2026)
+- ✅ Integração com **OpenRouter** suportando múltiplos modelos (incluindo Gemini 2.5/2.0 Flash, GPT-4o mini, Qwen 2.5 VL).
+- ✅ Configuração serverless e suporte completo para **Vercel** (`vercel.json`, `api/index.go`).
+- ✅ Refatoração estrutural de visibilidade (renomeado `internal/` para `pkg/` para compilar sob a infraestrutura do Vercel).
+- ✅ **Geração e Exportação de Formulário SEI**: Gerador completo de formulário de ocorrências e justificativas formatados com layout SEI e copiável como Rich Text (HTML).
+- ✅ **Extração de Período por Nome do Arquivo**: Fallback automático para descobrir mês/ano a partir do título do arquivo de upload (e.g. `abril2026.png`).
+- ✅ **Preservação de Saldo Original**: O saldo original da folha é preservado e pode ser copiado individualmente na célula divergente.
 
 ### v0.3.0 — Tutorial & Cópia (Abril 2026)
 - ✅ Tutorial interativo com spotlight e navegação
