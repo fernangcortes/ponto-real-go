@@ -38,9 +38,15 @@ func GeminiModels() []ModelOption {
 func OpenRouterModels() []ModelOption {
 	return []ModelOption{
 		{
+			ID:          "google/gemini-2.5-flash",
+			Name:        "⚡ Gemini 2.5 Flash",
+			Description: "Recomendado. Nova geração da família Flash com maior precisão e context window.",
+			Speed:       "Rápido",
+		},
+		{
 			ID:          "google/gemini-2.0-flash-001",
 			Name:        "⚡ Gemini 2.0 Flash",
-			Description: "Melhor custo-benefício. Leitura rápida e precisa de tabelas estruturadas.",
+			Description: "Excelente custo-benefício. Leitura rápida e precisa de tabelas estruturadas.",
 			Speed:       "Rápido",
 		},
 		{

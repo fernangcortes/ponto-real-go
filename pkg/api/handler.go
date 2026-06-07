@@ -268,7 +268,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	model := r.FormValue("model")
 	if model == "" {
 		if h.Settings.Provider == "openrouter" {
-			model = "google/gemini-2.0-flash-001"
+			model = "google/gemini-2.5-flash"
 		} else {
 			model = "gemini-3.1-flash-lite-preview"
 		}
@@ -277,6 +277,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	// Validar modelo com base no provedor
 	if h.Settings.Provider == "openrouter" {
 		validModels := map[string]bool{
+			"google/gemini-2.5-flash":            true,
 			"google/gemini-2.0-flash-001":        true,
 			"openai/gpt-4o-mini":                  true,
 			"qwen/qwen2.5-vl-72b-instruct":        true,
