@@ -20,6 +20,12 @@ func AvailableModels() []ModelOption {
 func GeminiModels() []ModelOption {
 	return []ModelOption{
 		{
+			ID:          "gemini-2.5-flash",
+			Name:        "⚡ Gemini 2.5 Flash",
+			Description: "Recomendado. Nova geração com maior precisão e rapidez para leitura de tabelas.",
+			Speed:       "Rápido",
+		},
+		{
 			ID:          "gemini-3.1-flash-lite-preview",
 			Name:        "⚡ Gemini 3.1 Flash Lite",
 			Description: "Mais rápido e econômico. Bom para folhas de ponto com layout padrão.",

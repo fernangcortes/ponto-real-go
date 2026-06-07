@@ -18,14 +18,14 @@ const geminiAPIBase = "https://generativelanguage.googleapis.com/v1beta/models"
 // GeminiExtractor implementa Extractor usando a API do Gemini.
 type GeminiExtractor struct {
 	APIKey string
-	Model  string // "gemini-3.1-flash-lite-preview" ou "gemini-3.1-pro-preview"
+	Model  string // "gemini-2.5-flash", "gemini-3.1-flash-lite-preview" ou "gemini-3.1-pro-preview"
 	client *http.Client
 }
 
 // NewGeminiExtractor cria um novo extractor Gemini.
 func NewGeminiExtractor(apiKey, model string) *GeminiExtractor {
 	if model == "" {
-		model = "gemini-3.1-flash-lite-preview"
+		model = "gemini-2.5-flash"
 	}
 	return &GeminiExtractor{
 		APIKey: apiKey,

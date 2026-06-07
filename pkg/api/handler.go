@@ -272,7 +272,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		if h.Settings.Provider == "openrouter" {
 			model = "google/gemini-2.5-flash"
 		} else {
-			model = "gemini-3.1-flash-lite-preview"
+			model = "gemini-2.5-flash"
 		}
 	}
 
@@ -293,6 +293,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		validModels := map[string]bool{
+			"gemini-2.5-flash":              true,
 			"gemini-3.1-flash-lite-preview": true,
 			"gemini-3.1-pro-preview":        true,
 		}
