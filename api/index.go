@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/fernangcortes/ponto-real-go/internal/api"
-	"github.com/fernangcortes/ponto-real-go/internal/rules"
+	"github.com/fernangcortes/ponto-real-go/pkg/api"
+	"github.com/fernangcortes/ponto-real-go/pkg/rules"
 )
 
 var finalHandler http.Handler

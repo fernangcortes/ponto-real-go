@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/fernangcortes/ponto-real-go/internal/models"
-	"github.com/fernangcortes/ponto-real-go/internal/rules"
+	"github.com/fernangcortes/ponto-real-go/pkg/models"
+	"github.com/fernangcortes/ponto-real-go/pkg/rules"
 )
 
 func init() {

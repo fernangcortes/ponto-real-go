@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fernangcortes/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/pkg/models"
 )
 
 const openRouterAPIBase = "https://openrouter.ai/api/v1/chat/completions"

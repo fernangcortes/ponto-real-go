@@ -1,7 +1,7 @@
 package extraction
 
 import (
-	"github.com/fernangcortes/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/pkg/models"
 )
 
 // Extractor é a interface para extração de dados de folhas de ponto.

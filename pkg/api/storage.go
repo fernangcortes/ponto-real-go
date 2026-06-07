@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fernangcortes/ponto-real-go/internal/models"
+	"github.com/fernangcortes/ponto-real-go/pkg/models"
 )
 
 const dataDir = "data"

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/fernangcortes/ponto-real-go/internal/api"
-	"github.com/fernangcortes/ponto-real-go/internal/rules"
+	"github.com/fernangcortes/ponto-real-go/pkg/api"
+	"github.com/fernangcortes/ponto-real-go/pkg/rules"
 )
 
 //go:embed all:web
@@ -71,7 +71,7 @@ func loadRules() (*rules.Engine, error) {
 	// Tentar carregar de arquivo local primeiro
 	paths := []string{
 		"rules.json",
-		"internal/rules/rules.json",
+		"pkg/rules/rules.json",
 	}
 	for _, p := range paths {
 		if e, err := rules.NewEngine(p); err == nil {
