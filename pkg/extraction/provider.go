@@ -38,7 +38,7 @@ func GeminiModels() []ModelOption {
 func OpenRouterModels() []ModelOption {
 	return []ModelOption{
 		{
-			ID:          "google/gemini-2.0-flash",
+			ID:          "google/gemini-2.0-flash-001",
 			Name:        "⚡ Gemini 2.0 Flash",
 			Description: "Melhor custo-benefício. Leitura rápida e precisa de tabelas estruturadas.",
 			Speed:       "Rápido",
@@ -50,7 +50,7 @@ func OpenRouterModels() []ModelOption {
 			Speed:       "Rápido",
 		},
 		{
-			ID:          "qwen/qwen-2.5-vl-72b-instruct",
+			ID:          "qwen/qwen2.5-vl-72b-instruct",
 			Name:        "👁️ Qwen 2.5 VL 72B",
 			Description: "Estado da arte para OCR e tabelas densas, fotos desalinhadas ou digitalizações de baixa qualidade.",
 			Speed:       "Moderado",
