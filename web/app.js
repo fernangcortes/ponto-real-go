@@ -1127,9 +1127,6 @@ const openRouterApiKeyInput = document.getElementById('openRouterApiKey');
 const geminiKeyGroup = document.getElementById('geminiKeyGroup');
 const openRouterKeyGroup = document.getElementById('openRouterKeyGroup');
 
-// Modelo selectors da tela de upload
-const modelSelect = document.getElementById('modelSelect');
-const modelSelect2 = document.getElementById('modelSelect2');
 
 // Armazenamento local temporário dos modelos
 let availableModels = {
