@@ -102,6 +102,16 @@ type RulesConfig struct {
 type MonthDayRecord struct {
 	DayRecord
 	DayTypeOverride string `json:"day_type_override,omitempty"`
+
+	// OcorrenciaManual sobrepõe manualmente se o dia deve aparecer como
+	// ocorrência no documento SEI: nil = automático (segue Bloqueio/o),
+	// true = forçar inclusão, false = forçar exclusão.
+	OcorrenciaManual *bool `json:"ocorrencia_manual,omitempty"`
+
+	// JustificativaManual é o texto de justificativa usado quando a
+	// ocorrência foi incluída manualmente e não há horário gerado (Bloqueio)
+	// do qual inferir a frase automaticamente.
+	JustificativaManual string `json:"justificativa_manual,omitempty"`
 }
 
 // MonthData é o estado completo de um mês salvo em disco.

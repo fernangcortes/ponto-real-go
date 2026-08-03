@@ -123,6 +123,37 @@ const classifyDay = (d) => {
     return 'folga';
 };
 
+// --- Ocorrência manual: adicionar/remover dia da seção "Ocorrência" do SEI ---
+// Por padrão a ocorrência é derivada de d.o (existe algum horário gerado).
+// d.ocorrenciaManual permite sobrepor essa detecção: true força inclusão,
+// false força exclusão, null/undefined mantém o comportamento automático.
+const isAutoOccurrence = (d) => !!(d.o && d.o.includes(0));
+
+const isOccurrenceDay = (d) => {
+    if (d.ocorrenciaManual === true) return true;
+    if (d.ocorrenciaManual === false) return false;
+    return isAutoOccurrence(d);
+};
+
+window.toggleOcorrenciaManual = (idx, checked) => {
+    const d = daysData[idx];
+    // Se o novo valor coincide com o que a detecção automática já daria,
+    // não precisa de override — volta para "automático".
+    d.ocorrenciaManual = (checked === isAutoOccurrence(d)) ? null : checked;
+    if (!isOccurrenceDay(d)) d.justManual = '';
+    updateAll();
+    scheduleSave();
+};
+
+window.removeOcorrencia = (idx) => {
+    window.toggleOcorrenciaManual(idx, false);
+};
+
+window.syncJustManual = (idx, value) => {
+    daysData[idx].justManual = value;
+    scheduleSave();
+};
+
 // --- Feature 2: Day Type Override ---
 window.changeDayType = (idx, newType) => {
     daysData[idx].dayTypeOverride = newType === 'util' ? null : newType;
@@ -391,7 +422,7 @@ window.copyOcorrencia = () => {
     if (!body || !body.rows.length) { showToast('Nenhuma ocorrência', 'info'); return; }
     const header = 'Data\tEntrada\tSaída(Intervalo)\tEntrada(Intervalo)\tSaída';
     const rows = Array.from(body.rows).map(r => {
-        return Array.from(r.cells).map(c => {
+        return Array.from(r.cells).filter(c => !c.classList.contains('col-acao-manual')).map(c => {
             const input = c.querySelector('input');
             return input ? input.value : c.innerText.trim();
         }).join('\t');
@@ -424,7 +455,7 @@ window.copyAll = () => {
     if (ocBody) {
         out += 'Data\tEntrada\tSaída(Int.)\tEntrada(Int.)\tSaída\n';
         Array.from(ocBody.rows).forEach(r => {
-            out += Array.from(r.cells).map(c => {
+            out += Array.from(r.cells).filter(c => !c.classList.contains('col-acao-manual')).map(c => {
                 const input = c.querySelector('input');
                 return input ? input.value : c.innerText.trim();
             }).join('\t') + '\n';
@@ -527,7 +558,7 @@ const updateAll = () => {
         // Contagens
         if (tipo === 'falta') totalFaltas++;
         if (tipo === 'completo') totalCompletos++;
-        if (d.o && d.o.includes(0)) totalAjustados++;
+        if (isOccurrenceDay(d)) totalAjustados++;
 
         let realDiff = null;
 
@@ -586,13 +617,16 @@ const updateAll = () => {
             saldoEl.innerHTML = renderSaldoCellContent(d, realDiff);
         }
 
-        if (d.o && d.o.includes(0)) {
+        if (isOccurrenceDay(d)) {
             const isDispensa = tipo === 'dispensa';
+            const isManual = d.ocorrenciaManual === true;
+            const bloqueio = d.o || [1, 1, 1, 1];
 
-            // Para dispensa: só mostrar se o campo editável foi preenchido
-            // Para dias normais: mostrar todos os campos (inclusive gerados)
-            const hasEditedFields = isDispensa
-                ? fields.some((f, fi) => d.o[fi] === 0 && isTimeValid(d[f]))
+            // Para dispensa detectada automaticamente: só mostrar se o campo
+            // editável foi preenchido. Ocorrência manual é sempre exibida,
+            // já que o usuário pediu explicitamente para incluí-la.
+            const hasEditedFields = (isDispensa && !isManual)
+                ? fields.some((f, fi) => bloqueio[fi] === 0 && isTimeValid(d[f]))
                 : true;
 
             if (hasEditedFields) {
@@ -607,15 +641,16 @@ const updateAll = () => {
 
                 const trOc = document.createElement('tr');
                 trOc.innerHTML = `<td>${String(d.d).padStart(2, '0')}/${CONFIG.mesAno}</td>
-                    <td>${mkOcorInput(d.e1, d.o[0], 'e1', 0)}</td><td>${mkOcorInput(d.s1, d.o[1], 's1', 1)}</td>
-                    <td>${mkOcorInput(d.e2, d.o[2], 'e2', 2)}</td><td>${mkOcorInput(d.s2, d.o[3], 's2', 3)}</td>`;
+                    <td>${mkOcorInput(d.e1, bloqueio[0], 'e1', 0)}</td><td>${mkOcorInput(d.s1, bloqueio[1], 's1', 1)}</td>
+                    <td>${mkOcorInput(d.e2, bloqueio[2], 'e2', 2)}</td><td>${mkOcorInput(d.s2, bloqueio[3], 's2', 3)}</td>
+                    <td class="col-acao-manual"><button class="icon-btn" title="Remover esta ocorrência do documento SEI" onclick="removeOcorrencia(${idx})">✕</button></td>`;
                 ocorBody.appendChild(trOc);
 
                 // Renderizar justificativa
                 const faltantes = [];
                 const fields_names = ['a entrada', 'a saída do almoço', 'a entrada do almoço', 'a saída'];
                 fields.forEach((f, fi) => {
-                    if (d.o[fi] === 0) {
+                    if (bloqueio[fi] === 0) {
                         // Dispensa: só listar se o campo foi preenchido pelo usuário
                         if (!isDispensa || isTimeValid(d[f])) {
                             faltantes.push(fields_names[fi]);
@@ -623,15 +658,20 @@ const updateAll = () => {
                     }
                 });
 
+                const trJu = document.createElement('tr');
                 if (faltantes.length > 0) {
                     const mesAnoPrint = CONFIG.mesAno ? CONFIG.mesAno : '??/????';
                     const frase = montarJustificativa(`${String(d.d).padStart(2, '0')}/${mesAnoPrint}`, faltantes);
-
-                    const trJu = document.createElement('tr');
                     trJu.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" value="${frase}">
                 <button class="icon-btn" onclick="copyBtn('just_${d.d}')"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td>`;
-                    justBody.appendChild(trJu);
+                } else {
+                    // Ocorrência sem horário gerado (ex.: incluída manualmente):
+                    // não há como inferir a frase, então o usuário digita.
+                    const justVal = (d.justManual || '').replace(/"/g, '&quot;');
+                    trJu.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" placeholder="Descreva o motivo da ocorrência..." value="${justVal}" onblur="syncJustManual(${idx}, this.value)">
+                <button class="icon-btn" onclick="copyBtn('just_${d.d}')"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td>`;
                 }
+                justBody.appendChild(trJu);
             }
         }
     });
@@ -772,6 +812,16 @@ const renderTables = () => {
                         onblur="changeCarga(${i}, this.value)">`
                 : '';
 
+            // Toggle manual da seção "Ocorrência" do documento Gerar SEI.
+            // Reflete o estado efetivo (automático ou sobreposto) e alterna
+            // entre incluir/excluir manualmente este dia.
+            const occChecked = isOccurrenceDay(d);
+            const occOverridden = d.ocorrenciaManual === true || d.ocorrenciaManual === false;
+            const occHtml = `<label class="ocor-manual-toggle${occOverridden ? ' is-overridden' : ''}" title="Incluir/excluir manualmente esta data na seção Ocorrência do documento Gerar SEI">
+                <input type="checkbox" ${occChecked ? 'checked' : ''} onchange="toggleOcorrenciaManual(${i}, this.checked)">
+                Ocorrência
+            </label>`;
+
             let motivoHtml = `<td class="col-motivo"${motivoText}>
                 <select class="day-type-select${selectClass}" onchange="changeDayType(${i}, this.value)">
                     <option value="util"${selected === 'util' ? ' selected' : ''}>Útil</option>
@@ -783,6 +833,7 @@ const renderTables = () => {
                     <option value="reduzido"${selected === 'reduzido' ? ' selected' : ''}>Reduzido</option>
                 </select>
                 ${cargaHtml}
+                ${occHtml}
                 ${d.mot ? `<span class="mot-text" title="${d.mot}">${d.mot.substring(0, 60)}${d.mot.length > 60 ? '...' : ''}</span>` : ''}
             </td>`;
 
@@ -1194,6 +1245,8 @@ function loadFromAPI(data) {
             revisar: d.revisar || false,
             revisar_motivo: d.revisar_motivo || '',
             dayTypeOverride: null, // Feature 2
+            ocorrenciaManual: null,
+            justManual: '',
         });
     });
 
@@ -1449,6 +1502,10 @@ const saveCurrentMonth = async () => {
         // revisar/revisar_motivo não são salvos: o backend os recalcula na
         // leitura, senão um aviso já resolvido ficaria colado no mês para sempre.
         day_type_override: d.dayTypeOverride || undefined,
+        // Não usar `||`: false é um valor válido (exclusão manual) e não
+        // pode virar undefined, senão a exclusão se perde ao salvar.
+        ocorrencia_manual: (d.ocorrenciaManual === true || d.ocorrenciaManual === false) ? d.ocorrenciaManual : undefined,
+        justificativa_manual: d.justManual || undefined,
     }));
 
     const serverInfoEl = document.getElementById('serverInfo');
@@ -1561,6 +1618,8 @@ const loadMonthData = async (mesAno) => {
                 revisar: d.revisar || false,
                 revisar_motivo: d.revisar_motivo || '',
                 dayTypeOverride: d.day_type_override || null,
+                ocorrenciaManual: typeof d.ocorrencia_manual === 'boolean' ? d.ocorrencia_manual : null,
+                justManual: d.justificativa_manual || '',
             });
         });
 
@@ -2013,14 +2072,17 @@ const generateSeiHtml = () => {
     const cNome = document.getElementById('seiChefiaNome').value;
     const cLotacao = document.getElementById('seiChefiaLotacao').value;
 
-    // Filtrar dias com ocorrências (dias ajustados, onde d.o possui 0)
+    // Filtrar dias com ocorrências: automáticas (dias ajustados, onde d.o
+    // possui 0) e/ou incluídas/excluídas manualmente via d.ocorrenciaManual.
     const occurrences = daysData.filter(d => {
-        if (!d.o || !d.o.includes(0)) return false;
+        if (!isOccurrenceDay(d)) return false;
         const tipo = classifyDay(d);
         const isDispensa = tipo === 'dispensa';
+        const isManual = d.ocorrenciaManual === true;
+        const bloqueio = d.o || [1, 1, 1, 1];
         const fields = ['e1', 's1', 'e2', 's2'];
-        const hasEditedFields = isDispensa
-            ? fields.some((f, fi) => d.o[fi] === 0 && isTimeValid(d[f]))
+        const hasEditedFields = (isDispensa && !isManual)
+            ? fields.some((f, fi) => bloqueio[fi] === 0 && isTimeValid(d[f]))
             : true;
         return hasEditedFields;
     });
@@ -2047,9 +2109,10 @@ const generateSeiHtml = () => {
         const faltantes = [];
         const tipo = classifyDay(d);
         const isDispensa = tipo === 'dispensa';
+        const bloqueio = d.o || [1, 1, 1, 1];
 
         fields.forEach((f, fi) => {
-            if (d.o[fi] === 0) {
+            if (bloqueio[fi] === 0) {
                 // Dispensa: só listar se o campo foi preenchido pelo usuário
                 if (!isDispensa || isTimeValid(d[f])) {
                     faltantes.push(fields_names[fi]);
@@ -2060,6 +2123,9 @@ const generateSeiHtml = () => {
         if (faltantes.length > 0) {
             const frase = montarJustificativa(dataFull, faltantes);
             justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${frase}</p>`;
+        } else if ((d.justManual || '').trim()) {
+            // Ocorrência incluída manualmente: usa o texto digitado pelo usuário.
+            justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${dataFull} - ${d.justManual.trim()}</p>`;
         }
     });
 

@@ -1243,6 +1243,37 @@ input.just-input:focus {
     border-color: var(--accent);
 }
 
+/* Toggle manual de ocorrência (incluir/excluir do documento Gerar SEI) */
+.ocor-manual-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.ocor-manual-toggle input[type="checkbox"] {
+    cursor: pointer;
+    width: 12px;
+    height: 12px;
+    margin: 0;
+}
+
+.ocor-manual-toggle.is-overridden {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Coluna de ação (remover) na tabela de Ocorrência */
+.col-acao-manual {
+    width: 32px;
+    padding: 4px !important;
+}
+
 /* Sinaliza dia que precisa de conferência manual */
 .revisar-badge {
     cursor: help;
