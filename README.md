@@ -4,20 +4,22 @@
 
 [![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://golang.org)
 [![Gemini AI](https://img.shields.io/badge/Gemini_AI-Google-4285F4?logo=google&logoColor=white)](https://ai.google.dev)
+[![OpenRouter](https://img.shields.io/badge/OpenRouter-Multi--modelo-6E56CF)](https://openrouter.ai)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
 
 ## 📋 Sobre
 
-O **Ponto Real Go** é uma ferramenta web que automatiza o processo de análise de folhas de frequência (ponto eletrônico) para servidores públicos. O sistema utiliza IA (Google Gemini) para extrair dados de imagens/PDFs da folha de ponto, calcula automaticamente os saldos de horas e gera textos de ocorrência e justificativa prontos para uso no sistema do estado.
+O **Ponto Real Go** é uma ferramenta web que automatiza o processo de análise de folhas de frequência (ponto eletrônico) para servidores públicos, com regras padrão calibradas para a **UEG (Universidade Estadual de Goiás)** mas configuráveis para outras instituições. O sistema usa IA para extrair os dados de imagens/PDFs da folha de ponto — à escolha do usuário, via **Google Gemini** diretamente ou via **OpenRouter** (com acesso a modelos de diversos provedores, como GPT-4o mini, Qwen e Llama) — concilia a leitura com o calendário e um motor de regras próprio, calcula automaticamente os saldos de horas e gera textos de ocorrência e justificativa prontos para uso no SEI (Sistema Eletrônico de Informações) do estado.
 
 ### 🎯 Para quem é?
 
 Servidores públicos que precisam:
 - Conferir e ajustar suas folhas de ponto mensais
+- Detectar e corrigir inconsistências de leitura (observações deslocadas, horários implausíveis, expediente reduzido)
 - Calcular saldos de horas trabalhadas
-- Gerar justificativas padronizadas para o sistema de ponto do estado
+- Gerar ocorrências e justificativas padronizadas prontas para colar no SEI
 - Manter histórico organizado de todos os meses
 
 ---
@@ -64,6 +66,7 @@ Servidores públicos que precisam:
 | **Feriado** | Feriado — sem jornada obrigatória |
 | **Folga** | Folga — sem jornada obrigatória |
 | **Convocação** | Dia de convocação especial |
+| **Reduzido** | Expediente reduzido por decreto — carga horária diferenciada, configurável por dia |
 
 ### ✏️ Edição Inteligente
 - Horários editáveis em azul (gerados automaticamente).
@@ -106,7 +109,9 @@ Servidores públicos que precisam:
 
 ### Requisitos
 - **Go 1.21+** instalado
-- **Chave de API do Google Gemini** (gratuita em [aistudio.google.com](https://aistudio.google.com))
+- Uma chave de API de **pelo menos um** provedor de IA:
+  - **Google Gemini** (gratuita em [aistudio.google.com](https://aistudio.google.com)), ou
+  - **OpenRouter** (em [openrouter.ai](https://openrouter.ai)), que dá acesso a modelos de vários provedores com uma única chave.
 
 ### Instalação
 
@@ -123,8 +128,11 @@ go run .
 
 1. Acesse `http://localhost:8080`
 2. Clique no ⚙️ (Configurações) no header
-3. Insira sua chave da API Gemini
-4. Pronto! Faça upload da sua folha de ponto
+3. Escolha o provedor de IA (Google Gemini ou OpenRouter) e o modelo desejado
+4. Insira a chave de API correspondente (também pode ser definida via variável de ambiente, veja abaixo)
+5. Pronto! Faça upload da sua folha de ponto
+
+As chaves informadas pela interface têm prioridade sobre as variáveis de ambiente e, em execução local, ficam salvas em `settings.json` para não precisar reinformá-las a cada acesso.
 
 ---
 
@@ -138,9 +146,12 @@ Para hospedar o **Ponto Real Go** no [Render](https://render.com):
    - **Runtime**: `Go`
    - **Build Command**: `go build -o app .`
    - **Start Command**: `./app`
-   - **Environment Variables**:
+   - **Environment Variables** (opcionais — também podem ser definidas depois pela interface):
      - `PORT`: `10000` (ou sua preferência)
      - `GEMINI_API_KEY`: Sua chave do Google Gemini
+     - `OPENROUTER_API_KEY`: Sua chave do OpenRouter
+
+O mesmo binário também roda como função serverless na **Vercel** (`vercel.json` + `api/index.go`). Nesse modo (`VERCEL=1`), a persistência de configurações/meses em disco é desabilitada automaticamente — as chaves de API devem ser fornecidas via variáveis de ambiente ou reinformadas pela interface a cada sessão.
 
 ---
 
@@ -191,7 +202,7 @@ ponto-real-go/
 ### Stack Tecnológica
 - **Backend**: Go (net/http, embed, serverless-ready)
 - **Frontend**: HTML5, CSS3, JavaScript vanilla (Rich-Text clipboard support)
-- **IA**: Google Gemini API & OpenRouter (Gemini 2.5 Flash, GPT-4o mini, Qwen 2.5 VL)
+- **IA**: Google Gemini API (direto) & OpenRouter (multi-provedor: Gemini, GPT-4o mini, Qwen, Llama, Nemotron), selecionáveis por chave própria do usuário ou variável de ambiente
 - **Persistência**: JSON em disco local (opcional)
 - **Tipografia**: Inter + JetBrains Mono (Google Fonts)
 
