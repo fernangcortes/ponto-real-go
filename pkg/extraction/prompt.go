@@ -24,8 +24,35 @@ REGRAS DE EXTRAÇÃO:
 - Para dias sem nenhum registro, preencha todos os horários com "".
 - Mantenha o formato "HH:MM" para horários (ex: "08:02", "12:41").
 - Saldo/Ocorrência: mantenha com sinal se houver (ex: "-08:00", "+01:20", "00:18").
-- Se houver classificação do dia (FERIADO, RECESSO, PONTO FACULTATIVO), coloque no campo "mot".
 - O campo "w" (dia da semana) deve ser a abreviação em português: Seg, Ter, Qua, Qui, Sex, Sáb, Dom.
+
+COLUNAS DE HORÁRIO (E, S, E, S) — NUNCA PERCA UM BATIMENTO:
+- As 4 colunas de horário são INDEPENDENTES da coluna de observações. Leia-as
+  primeiro, linha por linha, antes de olhar as observações.
+- Um dia com observação (DISPENSA, EXPEDIENTE REDUZIDO, COMPENSAÇÃO) quase sempre
+  TAMBÉM tem horário batido. Extrair a observação e deixar os horários vazios é ERRO.
+- Só deixe os 4 horários vazios se a linha realmente mostrar "**:**" nas quatro colunas.
+- Antes de responder, confira: todo dia útil com horário visível na ficha tem
+  esse horário no JSON?
+
+COLUNA OBSERVAÇÕES/OCORRÊNCIAS (a mais crítica — leia com atenção):
+- Copie o texto da observação para o campo "mot", LITERALMENTE, sem resumir nem reescrever.
+- Vocabulário esperado: FERIADO, PONTO FACULTATIVO, RECESSO, SÁBADO, DOMINGO,
+  COMPENSAÇÃO, COMPENSAÇÃO DEDUZIDA, DISPENSA PARA FREQUÊNCIA A CURSO,
+  EXPEDIENTE REDUZIDO (geralmente seguido do decreto, ex: "EXPEDIENTE REDUZIDO - COPA 2026 - DEC. 10.925/2026").
+- ATENÇÃO AO ALINHAMENTO VERTICAL: nesta ficha a coluna de observações é um bloco
+  de texto corrido. Observações longas ocupam DUAS linhas e podem parecer pertencer
+  ao dia de baixo. Associe cada observação à linha do dia em que ela COMEÇA.
+- Quando uma observação continuar na linha seguinte (ex: "DISPENSA PARA FREQUÊNCIA A CURSO"
+  seguido de "DE DOUTORADO, MESTRADO,"), junte as duas partes no "mot" do MESMO dia.
+  Não crie uma observação separada para a linha de continuação.
+- Use SÁBADO e DOMINGO como conferência: eles precisam cair em dias que realmente
+  são sábado e domingo no calendário do mês. Se não baterem, você desalinhou a coluna —
+  reveja a associação antes de responder.
+- NUNCA junte observações de dias diferentes no mesmo campo. "DISPENSA PARA
+  FREQUÊNCIA A CURSO DE DOUTORADO, MESTRADO" e "SÁBADO" são de dias distintos:
+  cada um vai no "mot" do seu próprio dia. Se um "mot" terminar com SÁBADO ou
+  DOMINGO grudado em outro texto, você fundiu dois dias — separe.
 
 FORMATO DE SAÍDA (JSON puro):
 {
