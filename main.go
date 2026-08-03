@@ -52,7 +52,7 @@ func main() {
 		fmt.Printf("[FATAL] Erro ao montar front-end: %v\n", err)
 		os.Exit(1)
 	}
-	mux.Handle("GET /", http.FileServer(http.FS(webContent)))
+	mux.Handle("/", http.FileServer(http.FS(webContent)))
 
 	// Aplicar middlewares globais a todo o servidor (estáticos + API)
 	finalHandler := api.Chain(mux,
