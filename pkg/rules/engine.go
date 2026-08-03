@@ -106,24 +106,31 @@ var diasUteis = map[string]bool{
 	"Seg": true, "Ter": true, "Qua": true, "Qui": true, "Sex": true,
 }
 
+// CargaDoDia retorna a jornada exigida no dia, em minutos.
+// Usa a carga específica do dia quando definida (ex: decreto de expediente
+// reduzido); caso contrário, a carga global das regras.
+func (e *Engine) CargaDoDia(d *models.DayRecord) int {
+	if d.CargaEsperada > 0 {
+		return d.CargaEsperada
+	}
+	return e.Config.CargaHorariaDiaria
+}
+
 // ClassifyDay classifica o tipo de um dia baseado nos seus dados.
 func (e *Engine) ClassifyDay(d *models.DayRecord) models.DayType {
-	// Dispensa explícita no motivo
-	if strings.Contains(strings.ToUpper(d.Motivo), "DISPENSA") {
+	// Interpretar a observação/ocorrência com o vocabulário do SFR.
+	switch ClassifyObservacao(d.Motivo, d.Ocorrencia) {
+	case ObsDispensa:
 		return models.DayTypeDispensa
-	}
-
-	// Recesso
-	if strings.Contains(strings.ToUpper(d.Motivo), "RECESSO") ||
-		strings.Contains(strings.ToUpper(d.Ocorrencia), "RECESSO") {
+	case ObsRecesso:
 		return models.DayTypeRecesso
-	}
-
-	// Feriado
-	if strings.Contains(strings.ToUpper(d.Motivo), "FERIADO") ||
-		strings.Contains(strings.ToUpper(d.Motivo), "PONTO FACULTATIVO") {
+	case ObsFeriado, ObsPontoFacultativo:
 		return models.DayTypeFeriado
+	case ObsExpedienteReduzido:
+		// Jornada reduzida por decreto: o ponto batido já vale como cumprido.
+		return models.DayTypeExpedienteReduzido
 	}
+	// ObsCompensacao é apenas informativo: segue a classificação normal.
 
 	// Finais de semana
 	if d.DiaSemana == "Sáb" || d.DiaSemana == "Sab" || d.DiaSemana == "Dom" {
@@ -220,11 +227,12 @@ func (e *Engine) ValidateDay(d *models.DayRecord) []string {
 		errs = append(errs, fmt.Sprintf("almoço de %d min é menor que o mínimo de %d min", lunch, e.Config.AlmocoMinimo))
 	}
 
-	// Carga horária
+	// Carga horária (respeita jornada reduzida do dia, quando houver)
+	carga := e.CargaDoDia(d)
 	worked := (s1 - e1) + (s2 - e2)
-	if worked < e.Config.CargaHorariaDiaria {
+	if worked < carga {
 		errs = append(errs, fmt.Sprintf("carga de %s é menor que %s",
-			MinutesToTimeUnsigned(worked), MinutesToTimeUnsigned(e.Config.CargaHorariaDiaria)))
+			MinutesToTimeUnsigned(worked), MinutesToTimeUnsigned(carga)))
 	}
 
 	return errs
@@ -267,10 +275,38 @@ func (e *Engine) CalculateSummary(dias []models.DayRecord) models.TimesheetSumma
 			d.Tipo = e.ClassifyDay(d)
 		}
 
+		// Dia justificado que veio sem nenhum batimento: sinal de que a leitura
+		// perdeu os horários da ficha. É o aviso mais grave — perder ponto real
+		// em silêncio é pior que uma carga por conferir — então tem prioridade.
+		semHorario := (d.Tipo == models.DayTypeDispensa ||
+			d.Tipo == models.DayTypeExpedienteReduzido) && nenhumHorarioValido(d)
+		if semHorario {
+			d.Revisar = true
+			d.RevisarMotivo = MsgRevisarSemHorario
+		}
+
+		// Expediente reduzido por decreto: o ponto batido já vale como cumprido.
+		// Sem carga definida para o dia não há como apurar déficit, então o dia
+		// entra como neutro e fica sinalizado para conferência manual.
+		if d.Tipo == models.DayTypeExpedienteReduzido && d.CargaEsperada == 0 {
+			d.SaldoReal = "00:00"
+			if !semHorario {
+				d.Revisar = true
+				d.RevisarMotivo = MsgRevisarCargaReduzida
+			}
+			summary.DiasAjustados++
+			continue
+		}
+		// Carga informada: o dia foi conferido, não precisa mais de revisão.
+		if d.Tipo == models.DayTypeExpedienteReduzido && d.RevisarMotivo == MsgRevisarCargaReduzida {
+			d.Revisar = false
+			d.RevisarMotivo = ""
+		}
+
 		// 1. Calcular Saldo Real baseando-se em Matemática Irrefutável
 		if allTimesValid(d) {
 			worked := e.CalculateDayWorked(d)
-			diff := worked - e.Config.CargaHorariaDiaria
+			diff := worked - e.CargaDoDia(d)
 			if diff == 0 {
 				d.SaldoReal = "00:00"
 			} else if diff > 0 {
@@ -282,8 +318,8 @@ func (e *Engine) CalculateSummary(dias []models.DayRecord) models.TimesheetSumma
 		} else {
 			// Se o dia não tem 4 pontos válidos, saldo real depende do tipo
 			if d.Tipo == models.DayTypeFalta {
-				summary.SaldoTotalRealMinutos -= e.Config.CargaHorariaDiaria
-				d.SaldoReal = "-" + MinutesToTimeUnsigned(e.Config.CargaHorariaDiaria)
+				summary.SaldoTotalRealMinutos -= e.CargaDoDia(d)
+				d.SaldoReal = "-" + MinutesToTimeUnsigned(e.CargaDoDia(d))
 			} else {
 				// Feriado, Folga, Recesso ou Parcial que não foi ajustado -> Saldo real = Saldo Oficial (para não negativar injustamente)
 				summary.SaldoTotalRealMinutos += ParseSaldo(d.Saldo)
@@ -299,7 +335,7 @@ func (e *Engine) CalculateSummary(dias []models.DayRecord) models.TimesheetSumma
 				summary.DiasAjustados++
 				// Se nós geramos horários (Adjuster rodou), o saldo extraído não existe mais e usamos o novo
 				worked := e.CalculateDayWorked(d)
-				summary.SaldoTotalMinutos += worked - e.Config.CargaHorariaDiaria
+				summary.SaldoTotalMinutos += worked - e.CargaDoDia(d)
 			} else {
 				summary.SaldoTotalMinutos += ParseSaldo(d.Saldo)
 			}
@@ -309,9 +345,17 @@ func (e *Engine) CalculateSummary(dias []models.DayRecord) models.TimesheetSumma
 			if allTimesValid(d) {
 				// Se o adjuster reescreveu, calcular na mão
 				worked := e.CalculateDayWorked(d)
-				summary.SaldoTotalMinutos += worked - e.Config.CargaHorariaDiaria
+				summary.SaldoTotalMinutos += worked - e.CargaDoDia(d)
 			} else {
 				summary.SaldoTotalMinutos += ParseSaldo(d.Saldo)
+			}
+
+		case models.DayTypeExpedienteReduzido:
+			// Chega aqui apenas com carga do dia definida pelo usuário.
+			summary.DiasAjustados++
+			if allTimesValid(d) {
+				worked := e.CalculateDayWorked(d)
+				summary.SaldoTotalMinutos += worked - e.CargaDoDia(d)
 			}
 
 		case models.DayTypeFalta:
@@ -341,4 +385,10 @@ func containsZero(arr []int) bool {
 func allTimesValid(d *models.DayRecord) bool {
 	return IsTimeValid(d.Entrada1) && IsTimeValid(d.Saida1) &&
 		IsTimeValid(d.Entrada2) && IsTimeValid(d.Saida2)
+}
+
+// nenhumHorarioValido informa que o dia não tem batimento algum.
+func nenhumHorarioValido(d *models.DayRecord) bool {
+	return !IsTimeValid(d.Entrada1) && !IsTimeValid(d.Saida1) &&
+		!IsTimeValid(d.Entrada2) && !IsTimeValid(d.Saida2)
 }
