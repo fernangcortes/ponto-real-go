@@ -67,11 +67,16 @@ func (s *TimesheetService) ProcessUpload(
 		}
 	}
 
-	// 4. Ajustar horários faltantes (lógica determinística)
+	// 4. Realinhar a coluna de observações usando o calendário real como âncora.
+	// Precisa vir antes do ajuste, pois é a observação que define se o dia pode
+	// ter horário gerado (ex: expediente reduzido não pode).
+	extraction.AlignObservacoes(timesheet)
+
+	// 5. Ajustar horários faltantes (lógica determinística)
 	adjuster := extraction.NewRulesAdjuster(s.engine)
 	adjusted := adjuster.Adjust(timesheet)
 
-	// 5. Classificar dias e calcular resumo
+	// 6. Classificar dias e calcular resumo
 	for i := range adjusted.Dias {
 		adjusted.Dias[i].Tipo = s.engine.ClassifyDay(&adjusted.Dias[i])
 	}
@@ -82,7 +87,7 @@ func (s *TimesheetService) ProcessUpload(
 		Summary:   summary,
 	}
 
-	// 6. Auto-salvar o mês processado em disco
+	// 7. Auto-salvar o mês processado em disco
 	if adjusted.MesAno != "" {
 		monthDays := make([]models.MonthDayRecord, len(adjusted.Dias))
 		for i, d := range adjusted.Dias {
@@ -147,8 +152,33 @@ func (s *TimesheetService) ListMonths() ([]models.MonthSummary, error) {
 }
 
 // LoadMonth carrega os dados de um mês específico.
+//
+// Os avisos de conferência são diagnósticos derivados dos dados, não fatos
+// gravados: reavaliamos na leitura para que um aviso já resolvido não
+// reapareça, e para que dados salvos por versões antigas sejam reclassificados
+// com as regras atuais.
 func (s *TimesheetService) LoadMonth(mesAno string) (*models.MonthData, error) {
-	return s.repo.Load(mesAno)
+	data, err := s.repo.Load(mesAno)
+	if err != nil || data == nil {
+		return data, err
+	}
+
+	ts := &models.Timesheet{MesAno: data.MesAno, Servidor: data.Servidor}
+	ts.Dias = make([]models.DayRecord, len(data.Dias))
+	for i, d := range data.Dias {
+		ts.Dias[i] = d.DayRecord
+	}
+
+	extraction.AlignObservacoes(ts)
+	for i := range ts.Dias {
+		ts.Dias[i].Tipo = s.engine.ClassifyDay(&ts.Dias[i])
+	}
+	s.engine.CalculateSummary(ts.Dias)
+
+	for i := range data.Dias {
+		data.Dias[i].DayRecord = ts.Dias[i]
+	}
+	return data, nil
 }
 
 // SaveMonth salva o estado completo de um mês no repositório.
