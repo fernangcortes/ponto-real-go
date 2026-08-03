@@ -1218,6 +1218,71 @@ input.just-input:focus {
     background: rgba(120, 144, 156, 0.08);
 }
 
+/* Expediente reduzido por decreto: jornada menor, ponto batido já vale */
+.day-type-select.is-reduzido {
+    border-color: #26a69a;
+    color: #26a69a;
+    background: rgba(38, 166, 154, 0.08);
+}
+
+/* Carga horária do dia (minutos), usada no expediente reduzido */
+.carga-input {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    width: 52px;
+    padding: 2px 4px;
+    margin-left: 4px;
+    border: 1px solid #26a69a;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.carga-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Sinaliza dia que precisa de conferência manual */
+.revisar-badge {
+    cursor: help;
+    font-size: 11px;
+}
+
+/* Frase padrão editável das justificativas */
+.just-template-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 6px 0 10px 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.just-template-input {
+    flex: 1 1 220px;
+    min-width: 160px;
+    padding: 5px 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.just-template-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.just-template-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 /* Row styles for feriado/folga/convocação days */
 tr.row-feriado td,
 tr.row-folga td,
@@ -1718,4 +1783,4 @@ tr.validation-error td input[type="time"] {
 
 .footer-copy-btn:hover {
     background: rgba(255,255,255,0.1);
-}
+}

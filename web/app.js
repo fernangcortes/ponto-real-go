@@ -16,6 +16,23 @@ const CONFIG = {
 let daysData = [];
 let activeServidor = {};
 
+// --- Justificativa: frase padrão editável ---
+// Fica antes dos horários faltantes. Trocar para "esqueci de registrar"
+// produz "esqueci de registrar a saída".
+const JUST_TEMPLATE_PADRAO = 'O ponto não registrou';
+const JUST_TEMPLATE_KEY = 'pontoReal.justTemplate';
+
+const getJustTemplate = () => {
+    const salvo = (localStorage.getItem(JUST_TEMPLATE_KEY) || '').trim();
+    return salvo || JUST_TEMPLATE_PADRAO;
+};
+
+// Monta "DD/MM/AAAA - <texto padrão> a entrada e a saída."
+const montarJustificativa = (dataFmt, faltantes) => {
+    const lista = faltantes.join(', ').replace(/,([^,]*)$/, ' e$1');
+    return `${dataFmt} - ${getJustTemplate()} ${lista}.`;
+};
+
 // --- Utilidades ---
 const t2m = (t) => {
     if (!t || t === '**:**') return 0;
@@ -67,6 +84,17 @@ const isWeekend = (d) => {
     return d.w === 'Sáb' || d.w === 'Sab' || d.w === 'Dom';
 };
 
+// Remove acentos para comparar texto de observação vindo da ficha.
+const normalizeObs = (s) => (s || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// Expediente reduzido por decreto: o ponto batido já vale como cumprido,
+// então o sistema nunca gera horário nesses dias.
+const isExpedienteReduzido = (d) => {
+    const t = normalizeObs(d.mot) + ' ' + normalizeObs(d.ocor);
+    return t.includes('EXPEDIENTE REDUZIDO') || t.includes('HORARIO REDUZIDO') || t.includes('JORNADA REDUZIDA');
+};
+
 // --- Classificação de dia ---
 const classifyDay = (d) => {
     // Respeitar override manual do usuário
@@ -76,6 +104,9 @@ const classifyDay = (d) => {
     if (d.dayTypeOverride === 'convocacao') return 'recesso';
     if (d.dayTypeOverride === 'dispensa') return 'dispensa';
 
+    if (d.dayTypeOverride === 'reduzido') return 'reduzido';
+
+    if (isExpedienteReduzido(d)) return 'reduzido';
     if (d.mot && d.mot.toUpperCase().includes('DISPENSA')) return 'dispensa';
     if (d.mot && (d.mot.toUpperCase().includes('RECESSO') || d.mot.toUpperCase().includes('FERIADO') || d.mot.toUpperCase().includes('FACULTATIVO'))) return 'recesso';
     if (isWeekend(d)) return 'folga';
@@ -98,6 +129,15 @@ window.changeDayType = (idx, newType) => {
     const container = document.getElementById('tablesContainer');
     container.innerHTML = '';
     renderTables();
+    updateAll();
+    scheduleSave();
+};
+
+// Carga horária exigida num dia de expediente reduzido (minutos, do decreto).
+// Em branco o dia fica neutro: não gera saldo nem déficit.
+window.changeCarga = (idx, valor) => {
+    const min = parseInt(valor, 10);
+    daysData[idx].carga = Number.isFinite(min) && min > 0 ? min : undefined;
     updateAll();
     scheduleSave();
 };
@@ -165,11 +205,13 @@ const autoFillDay = (idx, changedField) => {
         }
     }
 
-    // === Dispensa: NÃO auto-preencher campos vazios ===
-    // Em dias de dispensa o usuário pode editar 1 ou mais horários
-    // sem que o sistema complete automaticamente os restantes.
+    // === Dispensa / Expediente reduzido: NÃO auto-preencher campos vazios ===
+    // Em dispensa o usuário pode editar 1 ou mais horários sem que o sistema
+    // complete os restantes. Em expediente reduzido a jornada exigida é menor
+    // que a padrão, então o ponto batido já basta — completar até 8h inventaria
+    // horas que o servidor não deveria cumprir.
     const tipo = classifyDay(d);
-    if (tipo === 'dispensa') return;
+    if (tipo === 'dispensa' || tipo === 'reduzido') return;
 
     // === Auto-fill: preencher campos vazios restantes ===
     const vals = fields.map(f => isTimeValid(d[f]) ? t2m(d[f]) : null);
@@ -493,6 +535,19 @@ const updateAll = () => {
         if (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao') {
             realDiff = 0;
             // Não adiciona nada ao totalSaldoReal (dia neutro)
+        } else if (tipo === 'reduzido') {
+            // Expediente reduzido: a jornada exigida vem do decreto (d.carga).
+            // Sem carga informada o dia é neutro — nunca herda o saldo negativo
+            // extraído da ficha, que foi apurado contra a jornada cheia.
+            let worked = 0;
+            if (isTimeValid(d.e1) && isTimeValid(d.s1)) worked += t2m(d.s1) - t2m(d.e1);
+            if (isTimeValid(d.e2) && isTimeValid(d.s2)) worked += t2m(d.s2) - t2m(d.e2);
+
+            realDiff = d.carga > 0 ? worked - d.carga : 0;
+            totalSaldoReal += realDiff;
+
+            const esEl = document.getElementById(`m_es_${d.d}`);
+            if (esEl && worked > 0) esEl.innerText = m2tUnsigned(worked);
         } else if (tipo === 'dispensa') {
             // Dispensa: calcular saldo com base nos horários preenchidos
             // Esperado = metade da carga diária (4h = 240 min)
@@ -570,7 +625,7 @@ const updateAll = () => {
 
                 if (faltantes.length > 0) {
                     const mesAnoPrint = CONFIG.mesAno ? CONFIG.mesAno : '??/????';
-                    const frase = `${String(d.d).padStart(2, '0')}/${mesAnoPrint} - O ponto não registrou ${faltantes.join(', ').replace(/,([^,]*)$/, ' e$1')}.`;
+                    const frase = montarJustificativa(`${String(d.d).padStart(2, '0')}/${mesAnoPrint}`, faltantes);
 
                     const trJu = document.createElement('tr');
                     trJu.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" value="${frase}">
@@ -681,23 +736,42 @@ const renderTables = () => {
             if (tipo === 'falta') {
                 diaDisplay = `<span title="Falta injustificada" style="color:var(--danger)">${diaFmt} 🔴</span>`;
             }
+            // Sinalizado pelo backend: observação deslocada ou carga a conferir.
+            if (d.revisar) {
+                const motivo = (d.revisar_motivo || 'Requer conferência manual').replace(/"/g, '&quot;');
+                diaDisplay += ` <span class="revisar-badge" title="${motivo}">⚠️</span>`;
+            }
 
             // Seletor de tipo de dia — disponível para todos os dias
             // Auto-detecção inteligente: FDS pelo calendário, dispensa/feriado pelo motivo
             const autoDetectDispensa = d.mot && d.mot.toUpperCase().includes('DISPENSA');
             const autoDetectFeriado = d.mot && (d.mot.toUpperCase().includes('RECESSO') || d.mot.toUpperCase().includes('FERIADO') || d.mot.toUpperCase().includes('FACULTATIVO'));
             const autoDetectFDS = isWeekend(d);
+            const autoDetectReduzido = isExpedienteReduzido(d);
 
             let selected = d.dayTypeOverride || 'util';
             // Auto-setar override se detectado e ainda não definido manualmente
             if (!d.dayTypeOverride) {
-                if (autoDetectFDS) { selected = 'fds'; d.dayTypeOverride = 'fds'; }
+                // Expediente reduzido vence o FDS: um decreto pode reduzir jornada
+                // em dia útil, e é o caso que não pode gerar horário automático.
+                if (autoDetectReduzido) { selected = 'reduzido'; d.dayTypeOverride = 'reduzido'; }
+                else if (autoDetectFDS) { selected = 'fds'; d.dayTypeOverride = 'fds'; }
                 else if (autoDetectDispensa) { selected = 'dispensa'; d.dayTypeOverride = 'dispensa'; }
                 else if (autoDetectFeriado) { selected = 'feriado'; d.dayTypeOverride = 'feriado'; }
             }
 
-            const selectClass = ['feriado','folga','convocacao','dispensa','fds'].includes(selected) ? ` is-${selected}` : '';
+            const selectClass = ['feriado','folga','convocacao','dispensa','fds','reduzido'].includes(selected) ? ` is-${selected}` : '';
             const motivoText = d.mot ? ` title="${d.mot}"` : '';
+
+            // Em expediente reduzido a jornada exigida vem do decreto, então
+            // precisa ser informada manualmente para o saldo fazer sentido.
+            const cargaHtml = selected === 'reduzido'
+                ? `<input type="number" class="carga-input" min="0" max="720" step="30"
+                        value="${d.carga || ''}" placeholder="min"
+                        title="Carga horária exigida neste dia, em minutos (conforme o decreto). Em branco = dia não gera saldo."
+                        onblur="changeCarga(${i}, this.value)">`
+                : '';
+
             let motivoHtml = `<td class="col-motivo"${motivoText}>
                 <select class="day-type-select${selectClass}" onchange="changeDayType(${i}, this.value)">
                     <option value="util"${selected === 'util' ? ' selected' : ''}>Útil</option>
@@ -706,7 +780,9 @@ const renderTables = () => {
                     <option value="feriado"${selected === 'feriado' ? ' selected' : ''}>Feriado</option>
                     <option value="folga"${selected === 'folga' ? ' selected' : ''}>Folga</option>
                     <option value="convocacao"${selected === 'convocacao' ? ' selected' : ''}>Convocação</option>
+                    <option value="reduzido"${selected === 'reduzido' ? ' selected' : ''}>Reduzido</option>
                 </select>
+                ${cargaHtml}
                 ${d.mot ? `<span class="mot-text" title="${d.mot}">${d.mot.substring(0, 60)}${d.mot.length > 60 ? '...' : ''}</span>` : ''}
             </td>`;
 
@@ -1114,6 +1190,9 @@ function loadFromAPI(data) {
             mot: d.mot || '',
             o: d.o || undefined,
             tipo: d.tipo || undefined,
+            carga: d.carga || undefined,
+            revisar: d.revisar || false,
+            revisar_motivo: d.revisar_motivo || '',
             dayTypeOverride: null, // Feature 2
         });
     });
@@ -1293,6 +1372,23 @@ settingsModal.addEventListener('click', (e) => {
 // Carregar modelos e inicializar
 loadModelsList();
 
+// --- Frase padrão da justificativa ---
+const justTemplateInput = document.getElementById('justTemplate');
+if (justTemplateInput) {
+    const salvo = localStorage.getItem(JUST_TEMPLATE_KEY);
+    if (salvo) justTemplateInput.value = salvo;
+
+    justTemplateInput.addEventListener('input', () => {
+        const v = justTemplateInput.value.trim();
+        if (v) {
+            localStorage.setItem(JUST_TEMPLATE_KEY, v);
+        } else {
+            localStorage.removeItem(JUST_TEMPLATE_KEY); // volta ao padrão
+        }
+        updateAll(); // regenera todas as frases já exibidas
+    });
+}
+
 // ============================================
 // Persistência por Mês
 // ============================================
@@ -1349,6 +1445,9 @@ const saveCurrentMonth = async () => {
         es: d.es, saldo: d.saldo, saldo_real: d.saldo_real || '',
         ocor: d.ocor, mot: d.mot,
         o: d.o || undefined, tipo: d.tipo || undefined,
+        carga: d.carga || undefined,
+        // revisar/revisar_motivo não são salvos: o backend os recalcula na
+        // leitura, senão um aviso já resolvido ficaria colado no mês para sempre.
         day_type_override: d.dayTypeOverride || undefined,
     }));
 
@@ -1458,6 +1557,9 @@ const loadMonthData = async (mesAno) => {
                 saldo_real: d.saldo_real || '',
                 ocor: d.ocor || '', mot: d.mot || '',
                 o: d.o || undefined, tipo: d.tipo || undefined,
+                carga: d.carga || undefined,
+                revisar: d.revisar || false,
+                revisar_motivo: d.revisar_motivo || '',
                 dayTypeOverride: d.day_type_override || null,
             });
         });
@@ -1956,7 +2058,7 @@ const generateSeiHtml = () => {
         });
 
         if (faltantes.length > 0) {
-            const frase = `${dataFull} - O ponto não registrou ${faltantes.join(', ').replace(/,([^,]*)$/, ' e$1')}.`;
+            const frase = montarJustificativa(dataFull, faltantes);
             justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${frase}</p>`;
         }
     });
