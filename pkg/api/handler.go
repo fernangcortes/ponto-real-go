@@ -242,26 +242,14 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	// Validar modelo com base no provedor
 	if h.settings.Provider == "openrouter" {
-		validModels := map[string]bool{
-			"google/gemini-2.5-flash":            true,
-			"google/gemini-2.0-flash-001":        true,
-			"openai/gpt-4o-mini":                  true,
-			"qwen/qwen2.5-vl-72b-instruct":        true,
-			"meta/llama-3.2-11b-vision-instruct": true,
-		}
-		if !validModels[model] {
+		if !isValidModel(model, extraction.OpenRouterModels()) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": fmt.Sprintf("Modelo OpenRouter inválido: %s", model),
 			})
 			return
 		}
 	} else {
-		validModels := map[string]bool{
-			"gemini-2.5-flash":              true,
-			"gemini-3.1-flash-lite-preview": true,
-			"gemini-3.1-pro-preview":        true,
-		}
-		if !validModels[model] {
+		if !isValidModel(model, extraction.GeminiModels()) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
 				"error": fmt.Sprintf("Modelo Gemini inválido: %s", model),
 			})
@@ -390,6 +378,16 @@ func (h *Handler) SaveMonth(w http.ResponseWriter, r *http.Request) {
 		"ok":      true,
 		"message": fmt.Sprintf("Mês %s salvo com sucesso", mesAno),
 	})
+}
+
+// isValidModel verifica se o modelo informado está entre as opções disponíveis.
+func isValidModel(model string, options []extraction.ModelOption) bool {
+	for _, opt := range options {
+		if opt.ID == model {
+			return true
+		}
+	}
+	return false
 }
 
 // writeJSON escreve uma resposta JSON.
