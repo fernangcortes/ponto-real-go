@@ -68,10 +68,22 @@ func OpenRouterModels() []ModelOption {
 			Speed:       "Moderado",
 		},
 		{
+			ID:          "qwen/qwen3.7-flash",
+			Name:        "⚡ Qwen 3.7 Flash",
+			Description: "Melhor custo-benefício. Visão nativa, 1M de contexto e mais barato que o Qwen 2.5 VL.",
+			Speed:       "Rápido",
+		},
+		{
 			ID:          "meta/llama-3.2-11b-vision-instruct",
 			Name:        "🦙 Llama 3.2 11B Vision",
 			Description: "Modelo leve e ultra-econômico para detecção e OCR básicos.",
 			Speed:       "Rápido",
+		},
+		{
+			ID:          "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+			Name:        "🆓 Nemotron 3 Nano Omni",
+			Description: "Gratuito, com visão nativa. Experimental: modelo de raciocínio, pode ser mais lento e sujeito a limites de uso da camada free.",
+			Speed:       "Variável",
 		},
 	}
 }
