@@ -23,6 +23,9 @@ const (
 	DayTypeCompleto DayType = "completo" // dia com 4 pontos
 	DayTypeDispensa DayType = "dispensa" // dispensa para curso, etc.
 	DayTypeRecesso  DayType = "recesso"  // recesso institucional
+	// DayTypeExpedienteReduzido marca dia com jornada reduzida por decreto.
+	// O ponto batido já é considerado suficiente: não gera horário automático.
+	DayTypeExpedienteReduzido DayType = "expediente_reduzido"
 )
 
 // DayRecord representa um dia na folha de frequência.
@@ -40,6 +43,15 @@ type DayRecord struct {
 	Motivo     string  `json:"mot"`
 	Bloqueio   []int   `json:"o,omitempty"`    // [E1, S1, E2, S2]: 1=original(bloqueado), 0=gerado(editável)
 	Tipo       DayType `json:"tipo,omitempty"` // classificação do dia
+
+	// CargaEsperada é a jornada exigida NESTE dia, em minutos.
+	// 0 = usar a carga global de RulesConfig. Preenchida manualmente em dias de
+	// expediente reduzido, já que cada decreto define uma jornada diferente.
+	CargaEsperada int `json:"carga,omitempty"`
+
+	// Revisar sinaliza que o dia precisa de conferência manual do usuário.
+	Revisar       bool   `json:"revisar,omitempty"`
+	RevisarMotivo string `json:"revisar_motivo,omitempty"`
 }
 
 // Timesheet representa uma folha de frequência mensal completa.
