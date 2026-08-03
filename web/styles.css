@@ -1814,4 +1814,173 @@ tr.validation-error td input[type="time"] {
 
 .footer-copy-btn:hover {
     background: rgba(255,255,255,0.1);
+}
+
+/* ============================================
+   Visualizador do Documento Original (painel lateral)
+   ============================================ */
+
+:root {
+    --doc-panel-width: 420px;
+}
+
+body.doc-panel-open {
+    padding-left: calc(24px + var(--doc-panel-width));
+    transition: padding-left 0.2s ease;
+}
+
+#viewDocBtn.active {
+    color: var(--accent);
+    background: var(--accent-bg);
+    border-radius: var(--radius-sm);
+}
+
+.doc-viewer-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--doc-panel-width);
+    height: 100vh;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+}
+
+.doc-viewer-panel.show {
+    transform: translateX(0);
+}
+
+.doc-viewer-resize {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 2;
+}
+
+.doc-viewer-resize:hover {
+    background: var(--accent);
+    opacity: 0.4;
+}
+
+.doc-viewer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.doc-viewer-filename {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.doc-viewer-zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.doc-viewer-zoom-controls .btn-icon {
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
+}
+
+.doc-viewer-zoom-pct {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 38px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.doc-viewer-body {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+    cursor: grab;
+}
+
+.doc-viewer-body.panning {
+    cursor: grabbing;
+}
+
+.doc-viewer-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
+.doc-viewer-stage img,
+.doc-viewer-stage canvas {
+    display: block;
+    user-select: none;
+    pointer-events: none;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+
+.doc-viewer-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.doc-viewer-pagenav {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 4px 10px;
+    box-shadow: var(--shadow-sm);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.doc-viewer-pagenav .btn-icon {
+    width: 22px;
+    height: 22px;
+}
+
+@media (max-width: 900px) {
+    body.doc-panel-open {
+        padding-left: 24px;
+    }
+    .doc-viewer-panel {
+        width: 100% !important;
+        z-index: 1600;
+    }
+    .doc-viewer-resize {
+        display: none;
+    }
 }

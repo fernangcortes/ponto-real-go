@@ -1073,6 +1073,7 @@ uploadZone.addEventListener('drop', (e) => {
     if (files.length > 0) {
         selectedFile = files[0];
         showFileSelected(selectedFile);
+        updateViewDocBtnVisibility();
     }
 });
 
@@ -1088,6 +1089,7 @@ fileInput.addEventListener('change', () => {
     if (fileInput.files.length > 0) {
         selectedFile = fileInput.files[0];
         showFileSelected(selectedFile);
+        updateViewDocBtnVisibility();
     }
 });
 
@@ -1115,6 +1117,9 @@ uploadClear.addEventListener('click', (e) => {
     selectedFile = null;
     lastUploadedFileName = '';
     fileInput.value = '';
+    closeDocViewerPanel();
+    docViewerLoadedFile = null;
+    updateViewDocBtnVisibility();
     daysData.length = 0;
     document.getElementById('tablesContainer').innerHTML = '';
     hideAllUploadStates();
@@ -1263,6 +1268,236 @@ function loadFromAPI(data) {
     renderTables();
     updateAll();
 }
+
+// ============================================
+// Visualizador do documento original (painel lateral com zoom/pan)
+// ============================================
+
+const viewDocBtn = document.getElementById('viewDocBtn');
+const docViewerPanel = document.getElementById('docViewerPanel');
+const docViewerBody = document.getElementById('docViewerBody');
+const docViewerStage = document.getElementById('docViewerStage');
+const docViewerResize = document.getElementById('docViewerResize');
+const docViewerPageNav = document.getElementById('docViewerPageNav');
+
+const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+let docViewerOpen = false;
+let docViewerLoadedFile = null;
+let docObjectUrl = null;
+let docZoomScale = 1;
+let docPanX = 0;
+let docPanY = 0;
+let docNaturalWidth = 0;
+let docNaturalHeight = 0;
+let docIsPanning = false;
+let docPanStartMouse = { x: 0, y: 0 };
+let docPanStartOffset = { x: 0, y: 0 };
+let docPdfDoc = null;
+let docPdfPage = 1;
+let docPdfNumPages = 1;
+let docPanelWidth = parseInt(localStorage.getItem('docViewerWidth') || '420', 10);
+document.documentElement.style.setProperty('--doc-panel-width', docPanelWidth + 'px');
+
+function updateViewDocBtnVisibility() {
+    viewDocBtn.style.display = selectedFile ? 'flex' : 'none';
+}
+
+function applyDocTransform() {
+    docViewerStage.style.transform = `translate(${docPanX}px, ${docPanY}px) scale(${docZoomScale})`;
+    document.getElementById('docZoomPct').textContent = Math.round(docZoomScale * 100) + '%';
+}
+
+function fitDocToScreen() {
+    if (!docNaturalWidth || !docNaturalHeight) return;
+    const rect = docViewerBody.getBoundingClientRect();
+    const scale = Math.min((rect.width - 32) / docNaturalWidth, (rect.height - 32) / docNaturalHeight, 4);
+    docZoomScale = scale > 0 ? scale : 1;
+    docPanX = (rect.width - docNaturalWidth * docZoomScale) / 2;
+    docPanY = (rect.height - docNaturalHeight * docZoomScale) / 2;
+    applyDocTransform();
+}
+
+function zoomDocBy(factor, centerX, centerY) {
+    const rect = docViewerBody.getBoundingClientRect();
+    const cx = centerX !== undefined ? centerX : rect.width / 2;
+    const cy = centerY !== undefined ? centerY : rect.height / 2;
+    const newScale = clamp(docZoomScale * factor, 0.1, 10);
+    const stagePointX = (cx - docPanX) / docZoomScale;
+    const stagePointY = (cy - docPanY) / docZoomScale;
+    docPanX = cx - stagePointX * newScale;
+    docPanY = cy - stagePointY * newScale;
+    docZoomScale = newScale;
+    applyDocTransform();
+}
+
+let pdfJsPromise = null;
+function ensurePdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfJsPromise) return pdfJsPromise;
+    pdfJsPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        script.onload = () => {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            resolve(window.pdfjsLib);
+        };
+        script.onerror = () => reject(new Error('Falha ao carregar leitor de PDF'));
+        document.head.appendChild(script);
+    });
+    return pdfJsPromise;
+}
+
+function updatePdfPageIndicator() {
+    document.getElementById('docPageIndicator').textContent = `${docPdfPage} / ${docPdfNumPages}`;
+}
+
+async function renderPdfPage(pageNum) {
+    const page = await docPdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = (viewport.width / 2) + 'px';
+    canvas.style.height = (viewport.height / 2) + 'px';
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    docViewerStage.innerHTML = '';
+    docViewerStage.appendChild(canvas);
+    docNaturalWidth = viewport.width / 2;
+    docNaturalHeight = viewport.height / 2;
+    fitDocToScreen();
+    updatePdfPageIndicator();
+}
+
+async function renderPdfIntoStage(file) {
+    docViewerStage.innerHTML = '<div class="doc-viewer-loading">Carregando PDF…</div>';
+    try {
+        const pdfjsLib = await ensurePdfJs();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        docPdfDoc = await pdfjsLib.getDocument({ data: bytes }).promise;
+        docPdfNumPages = docPdfDoc.numPages;
+        docPdfPage = 1;
+        await renderPdfPage(docPdfPage);
+        docViewerPageNav.style.display = docPdfNumPages > 1 ? 'flex' : 'none';
+    } catch (err) {
+        docViewerStage.innerHTML = '<div class="doc-viewer-loading">Erro ao carregar o PDF.</div>';
+        console.error('Erro ao renderizar PDF:', err);
+    }
+}
+
+function loadImageIntoStage(url) {
+    return new Promise((resolve) => {
+        docViewerStage.innerHTML = '';
+        const img = document.createElement('img');
+        img.draggable = false;
+        img.onload = () => {
+            docNaturalWidth = img.naturalWidth;
+            docNaturalHeight = img.naturalHeight;
+            fitDocToScreen();
+            resolve();
+        };
+        img.src = url;
+        docViewerStage.appendChild(img);
+    });
+}
+
+async function loadDocumentIntoViewer(file) {
+    document.getElementById('docViewerFilename').textContent = file.name;
+    docPdfDoc = null;
+    docViewerPageNav.style.display = 'none';
+    if (docObjectUrl) {
+        URL.revokeObjectURL(docObjectUrl);
+    }
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'pdf') {
+        await renderPdfIntoStage(file);
+    } else {
+        docObjectUrl = URL.createObjectURL(file);
+        await loadImageIntoStage(docObjectUrl);
+    }
+}
+
+async function openDocViewerPanel() {
+    if (!selectedFile) return;
+    docViewerOpen = true;
+    document.body.classList.add('doc-panel-open');
+    docViewerPanel.classList.add('show');
+    viewDocBtn.classList.add('active');
+    if (docViewerLoadedFile !== selectedFile) {
+        docViewerLoadedFile = selectedFile;
+        await loadDocumentIntoViewer(selectedFile);
+    }
+}
+
+function closeDocViewerPanel() {
+    docViewerOpen = false;
+    document.body.classList.remove('doc-panel-open');
+    docViewerPanel.classList.remove('show');
+    viewDocBtn.classList.remove('active');
+}
+
+viewDocBtn.addEventListener('click', () => {
+    if (docViewerOpen) closeDocViewerPanel(); else openDocViewerPanel();
+});
+document.getElementById('docViewerClose').addEventListener('click', closeDocViewerPanel);
+
+// Zoom por scroll, centrado na posição do mouse
+docViewerBody.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = docViewerBody.getBoundingClientRect();
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    zoomDocBy(factor, e.clientX - rect.left, e.clientY - rect.top);
+}, { passive: false });
+
+// Pan por arraste
+docViewerBody.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    docIsPanning = true;
+    docPanStartMouse = { x: e.clientX, y: e.clientY };
+    docPanStartOffset = { x: docPanX, y: docPanY };
+    docViewerBody.classList.add('panning');
+});
+window.addEventListener('mousemove', (e) => {
+    if (!docIsPanning) return;
+    docPanX = docPanStartOffset.x + (e.clientX - docPanStartMouse.x);
+    docPanY = docPanStartOffset.y + (e.clientY - docPanStartMouse.y);
+    applyDocTransform();
+});
+window.addEventListener('mouseup', () => {
+    docIsPanning = false;
+    docViewerBody.classList.remove('panning');
+});
+
+// Botões de zoom
+document.getElementById('docZoomIn').addEventListener('click', () => zoomDocBy(1.25));
+document.getElementById('docZoomOut').addEventListener('click', () => zoomDocBy(1 / 1.25));
+document.getElementById('docZoomReset').addEventListener('click', () => fitDocToScreen());
+
+// Navegação de páginas (PDF)
+document.getElementById('docPagePrev').addEventListener('click', () => {
+    if (docPdfPage > 1) { docPdfPage--; renderPdfPage(docPdfPage); }
+});
+document.getElementById('docPageNext').addEventListener('click', () => {
+    if (docPdfPage < docPdfNumPages) { docPdfPage++; renderPdfPage(docPdfPage); }
+});
+
+// Redimensionar o painel arrastando a borda
+let docResizingPanel = false;
+docViewerResize.addEventListener('mousedown', (e) => {
+    docResizingPanel = true;
+    e.preventDefault();
+});
+window.addEventListener('mousemove', (e) => {
+    if (!docResizingPanel) return;
+    docPanelWidth = clamp(e.clientX, 260, Math.min(900, window.innerWidth - 300));
+    document.documentElement.style.setProperty('--doc-panel-width', docPanelWidth + 'px');
+});
+window.addEventListener('mouseup', () => {
+    if (docResizingPanel) {
+        docResizingPanel = false;
+        localStorage.setItem('docViewerWidth', String(docPanelWidth));
+    }
+});
 
 // --- Configurações (Settings) ---
 const settingsBtn = document.getElementById('settingsBtn');

@@ -63,6 +63,12 @@
         </div>
         <div class="header-actions">
             <div class="server-info" id="serverInfo"></div>
+            <button class="btn-icon" id="viewDocBtn" aria-label="Ver documento original" title="Ver documento original" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+            </button>
             <button class="btn-icon" id="settingsBtn" aria-label="Configurações" title="Configurações">
                 <svg viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="3"></circle>
@@ -86,6 +92,7 @@
         </div>
     </div>
 
+    <div id="appMain">
     <!-- Upload Zone (Compact) -->
     <div class="upload-zone" id="uploadZone">
         <div class="upload-content" id="uploadContent">
@@ -251,7 +258,31 @@
             <tbody id="justificativaBody"></tbody>
         </table>
     </div>
+    </div>
+    <!-- /appMain -->
 
+    <!-- Painel lateral: visualizador do documento original enviado -->
+    <div id="docViewerPanel" class="doc-viewer-panel">
+        <div class="doc-viewer-resize" id="docViewerResize" title="Arrastar para redimensionar"></div>
+        <div class="doc-viewer-header">
+            <span class="doc-viewer-filename" id="docViewerFilename">Documento</span>
+            <div class="doc-viewer-zoom-controls">
+                <button class="btn-icon" id="docZoomOut" title="Diminuir zoom">−</button>
+                <span class="doc-viewer-zoom-pct" id="docZoomPct">100%</span>
+                <button class="btn-icon" id="docZoomIn" title="Aumentar zoom">+</button>
+                <button class="btn-icon" id="docZoomReset" title="Ajustar à tela">⤢</button>
+            </div>
+            <button class="btn-icon" id="docViewerClose" aria-label="Fechar" title="Fechar">&times;</button>
+        </div>
+        <div class="doc-viewer-body" id="docViewerBody">
+            <div class="doc-viewer-stage" id="docViewerStage"></div>
+            <div class="doc-viewer-pagenav" id="docViewerPageNav" style="display:none">
+                <button class="btn-icon" id="docPagePrev" title="Página anterior">‹</button>
+                <span id="docPageIndicator">1 / 1</span>
+                <button class="btn-icon" id="docPageNext" title="Próxima página">›</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal de Configurações -->
     <div id="settingsModal" class="modal">
