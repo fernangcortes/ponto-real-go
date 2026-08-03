@@ -27,8 +27,21 @@ Servidores públicos que precisam:
 ### 🤖 Leitura Inteligente por IA (Multi-provedor)
 - Upload de imagem (PNG, JPEG, WebP) ou PDF da folha de ponto.
 - Extração automática via **Google Gemini** (Gemini 2.5 Flash, Gemini 3.1 Flash Lite/Pro).
-- Suporte nativo ao **OpenRouter** para modelos variados (Gemini 2.5/2.0 Flash, GPT-4o mini, Qwen 2.5 VL, Llama 3.2).
+- Suporte nativo ao **OpenRouter** para modelos variados (Gemini 2.5/2.0 Flash, GPT-4o mini, Qwen 2.5 VL, Qwen 3.7 Flash, Llama 3.2, Nemotron 3 Nano Omni).
 - **Extração por Nome de Arquivo**: se o Vision da IA falhar em achar o mês/ano no papel, o sistema analisa o nome do arquivo enviado (e.g. `abril2026.png`) e deduz o período.
+- **Prompt orientado ao layout do SFR**: instruções dedicadas ao vocabulário e à disposição real da ficha de frequência para reduzir erros de leitura.
+
+### 🧭 Realinhamento e Conferência Automática
+- **Realinhamento de observações deslocadas**: usa o calendário como âncora para detectar e corrigir colunas de observação fora de posição.
+- **Reatribuição de horários por plausibilidade**: evita gerar horário indevido em dias que não deveriam ter batimento e reatribui pontos lidos incorretamente.
+- **Vocabulário centralizado de observações/ocorrências**: motor de regras único que classifica os avisos da ficha SFR (feriado, expediente reduzido, sem horário lido, etc.).
+- **Avisos de conferência recalculados** automaticamente ao processar ou reabrir um mês salvo.
+- **Expediente reduzido por decreto**: suporte a carga horária diferenciada por dia, com aviso quando a carga ainda não foi informada.
+
+### 🖼️ Visualizador Lateral do Documento
+- Painel lateral redimensionável para conferir a imagem/PDF original enquanto revisa a tabela extraída.
+- Zoom por scroll centrado no cursor, arraste (pan) e botões de zoom/reset.
+- Paginação para documentos PDF com múltiplas páginas.
 
 ### 💼 Exportação Direta para o SEI (Rich Text)
 - Geração do formulário de frequência completo nos padrões e tabelas do **SEI** (Sistema Eletrônico de Informações).
@@ -57,6 +70,11 @@ Servidores públicos que precisam:
 - Horários originais preservados em preto.
 - Auto-complemento inteligente de horários faltantes.
 - Modo Dispensa: edição parcial sem auto-completar.
+
+### 🗂️ Ocorrência Manual para o SEI
+- Toggle por dia na tabela principal para adicionar ou remover uma ocorrência manualmente, sobrepondo a detecção automática baseada em horário gerado.
+- Quando não há horário gerado para inferir a justificativa, o usuário digita o motivo livremente.
+- A sobreposição é persistida por dia e respeitada tanto na tela quanto no documento gerado pelo Gerar SEI.
 
 ### 📋 Sistema de Cópia e Saldos
 - **Saldo Original Preservado**: O saldo da imagem original nunca é apagado. Se houver divergência com o calculado, a tabela exibe ambos (o original riscado e o calculado em destaque).
@@ -151,18 +169,21 @@ ponto-real-go/
 │   │   ├── timesheet_service.go    # Casos de uso e orquestração de negócios
 │   │   └── timesheet_service_test.go # Testes de cobertura do serviço
 │   ├── extraction/
-│   │   ├── provider.go        # Interface de extração IA
+│   │   ├── provider.go        # Interface de extração IA e catálogo de modelos
 │   │   ├── factory.go         # Fábrica de extratores baseada em registro modular
 │   │   ├── gemini.go          # Integração Google Gemini
 │   │   ├── openrouter.go      # Integração OpenRouter API
-│   │   ├── prompt.go          # Prompt de extração
+│   │   ├── prompt.go          # Prompt de extração (vocabulário e layout do SFR)
 │   │   ├── prompt_adjust.go   # Prompt de ajuste
-│   │   └── rules_adjuster.go  # Ajuste baseado em regras (preserva saldo original)
+│   │   ├── rules_adjuster.go  # Ajuste baseado em regras (preserva saldo original, plausibilidade de horários)
+│   │   ├── align.go           # Realinhamento de observações deslocadas usando o calendário como âncora
+│   │   └── align_test.go      # Testes de realinhamento e reatribuição de horários
 │   ├── models/
 │   │   └── timesheet.go       # Modelos de dados de domínio e DTOs
 │   └── rules/
 │       ├── engine.go          # Motor de regras
 │       ├── engine_test.go     # Testes
+│       ├── observacoes.go     # Vocabulário centralizado de observações/ocorrências da ficha SFR
 │       └── rules.json         # Regras UEG
 └── data/                      # Dados salvos (meses, apenas localmente)
 ```
@@ -177,6 +198,17 @@ ponto-real-go/
 ---
 
 ## 📝 Changelog
+
+### v1.1.0 — Conferência Inteligente & Ocorrência Manual (Agosto 2026)
+- ✅ **Realinhamento automático** de observações deslocadas usando o calendário como âncora.
+- ✅ **Reatribuição de horários por plausibilidade**, evitando geração indevida de horário em dias sem batimento esperado.
+- ✅ **Vocabulário centralizado de observações/ocorrências** da ficha SFR, aplicado no motor de regras.
+- ✅ **Recalculo de avisos de conferência** ao processar e reabrir um mês salvo.
+- ✅ **Expediente reduzido por decreto** com carga horária configurável por dia e justificativa editável no frontend.
+- ✅ **Ocorrência manual**: toggle por dia para adicionar/remover ocorrências e sobrepor a detecção automática no documento gerado pelo SEI.
+- ✅ **Visualizador lateral do documento enviado**, com zoom por scroll, arraste (pan) e paginação de PDF.
+- ✅ Novos modelos no OpenRouter: **Qwen 3.7 Flash** e **Nemotron 3 Nano Omni**.
+- ✅ Correções de roteamento entre arquivos estáticos e `/api` no servidor local e de duplicidade na lista de modelos do OpenRouter.
 
 ### v1.0.0 — Stable Release & Clean Architecture (Junho 2026)
 - ✅ **Refatoração para Clean Architecture e SOLID**: Separação total da camada de negócio (`service`), persistência (`repository`), inteligência artificial (`extraction/factory`) e transporte (`api/handler`).
