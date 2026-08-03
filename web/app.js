@@ -2018,7 +2018,7 @@ const Tour = (() => {
         {
             target: '.model-select',
             title: '🤖 Modelo de IA',
-            text: '<b>Flash Lite</b> é mais rápido e gratuito. <b>Pro</b> é mais preciso para imagens difíceis. Recomendamos começar com Flash Lite.',
+            text: '<b>Gemini 2.5 Flash</b> (recomendado) é o mais preciso e rápido para a maioria das folhas. <b>Flash Lite</b> é uma opção mais econômica para layouts simples, e <b>Pro</b> é indicado para folhas com layout complexo ou baixa qualidade.',
             pos: 'bottom'
         },
         {
@@ -2030,7 +2030,7 @@ const Tour = (() => {
         {
             target: '#settingsBtn',
             title: '⚙️ Configurações',
-            text: 'Configure sua chave da API Gemini aqui. Necessário para o processamento de imagens. Obtenha sua chave gratuita em <b>aistudio.google.com</b>.',
+            text: 'Configure sua chave de API aqui. Escolha entre <b>Google Gemini</b> (direto, chave gratuita em aistudio.google.com) ou <b>OpenRouter</b> como provedor de IA.',
             pos: 'bottom-left'
         },
         {
@@ -2051,6 +2051,12 @@ const Tour = (() => {
             pos: 'bottom'
         },
         {
+            target: '#viewDocBtn',
+            title: '🔍 Ver Documento Original',
+            text: 'Abre um painel lateral com a imagem ou PDF que você enviou. Dá para dar <b>zoom</b>, arrastar (<b>pan</b>) e navegar entre páginas — útil para conferir os dados extraídos lado a lado com a tabela.',
+            pos: 'bottom-left'
+        },
+        {
             target: '.main-table',
             title: '📋 Tabela Principal',
             text: 'Todos os dias do mês com seus horários. Cada coluna representa: <b>E</b>=Entrada, <b>S</b>=Saída do almoço, <b>E</b>=Retorno do almoço, <b>S</b>=Saída final.',
@@ -2063,9 +2069,9 @@ const Tour = (() => {
             pos: 'bottom'
         },
         {
-            target: '.day-type-select',
-            title: '🏷️ Tipo de Dia',
-            text: 'Cada dia tem um seletor: <b>Útil</b>, <b>FDS</b> (auto-detectado), <b>Dispensa</b> (meio período), <b>Feriado</b>, <b>Folga</b> ou <b>Convocação</b>. Altere conforme necessário.',
+            target: '.col-motivo',
+            title: '🏷️ Tipo de Dia & Ocorrência',
+            text: 'Seletor de tipo: <b>Útil</b>, <b>FDS</b> (auto-detectado), <b>Dispensa</b> (meio período), <b>Feriado</b>, <b>Folga</b>, <b>Convocação</b> ou <b>Reduzido</b> (expediente reduzido por decreto — informe a carga exigida em minutos). O checkbox <b>Ocorrência</b> ao lado inclui ou exclui manualmente o dia da seção de Ocorrência do SEI.',
             pos: 'top'
         },
         {
@@ -2083,13 +2089,19 @@ const Tour = (() => {
         {
             target: '.copy-toolbar',
             title: '📑 Barra de Cópia',
-            text: 'Copie seções inteiras: <b>Tabela</b> (dados completos), <b>Ocorrência</b>, <b>Justificativa</b>, ou <b>Tudo</b> de uma vez. Dados são separados por TAB — cole diretamente no Excel!',
+            text: '<b>Gerar SEI</b> monta o formulário completo (dados do servidor e chefia) pronto para colar no editor do SEI. Os demais botões copiam seções soltas: <b>Tabela</b>, <b>Ocorrência</b>, <b>Justificativa</b> ou <b>Tudo</b> — separados por TAB, prontos para o Excel!',
             pos: 'bottom'
         },
         {
-            target: '.doc-section-header',
-            title: '📝 Ocorrência & Justificativa',
-            text: 'As seções de <b>Ocorrência</b> mostram os dias ajustados, e a <b>Justificativa</b> gera frases automáticas para o sistema do estado. Cada seção tem botão "Copiar".',
+            target: '.doc-table:not(.justificativa)',
+            title: '📝 Ocorrência',
+            text: 'Lista os dias ajustados que entram no documento do SEI. Marque/desmarque o checkbox <b>Ocorrência</b> na tabela principal para incluir ou excluir um dia manualmente, ou clique no <b>✕</b> de uma linha aqui para removê-la rapidamente.',
+            pos: 'top'
+        },
+        {
+            target: '#justTemplate',
+            title: '✍️ Justificativa Editável',
+            text: 'Personalize a frase padrão usada em todas as justificativas (ex: "esqueci de registrar"). O sistema completa automaticamente com os horários faltantes de cada dia.',
             pos: 'top'
         },
         {
@@ -2166,20 +2178,30 @@ const Tour = (() => {
         tt.style.left = left + 'px';
     }
 
-    function showStep(idx) {
-        currentStep = idx;
+    function isElementVisible(el) {
+        if (!el || !el.isConnected) return false;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden';
+    }
+
+    function showStep(idx, direction = 1) {
         steps = getSteps();
+        if (idx < 0) { end(); return; }
         if (idx >= steps.length) { end(); return; }
 
         const step = steps[idx];
         const target = document.querySelector(step.target);
 
-        if (!target) {
-            // Skip invisible steps
-            if (idx < steps.length - 1) showStep(idx + 1);
+        if (!isElementVisible(target)) {
+            // Passo com alvo ausente/oculto no estado atual: pula na mesma direção
+            const nextIdx = idx + direction;
+            if (nextIdx >= 0 && nextIdx < steps.length) showStep(nextIdx, direction);
             else end();
             return;
         }
+        currentStep = idx;
 
         // Scroll target into view
         target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2231,12 +2253,12 @@ const Tour = (() => {
     }
 
     function next() {
-        if (currentStep < steps.length - 1) showStep(currentStep + 1);
+        if (currentStep < steps.length - 1) showStep(currentStep + 1, 1);
         else end();
     }
 
     function prev() {
-        if (currentStep > 0) showStep(currentStep - 1);
+        if (currentStep > 0) showStep(currentStep - 1, -1);
     }
 
     // Events
