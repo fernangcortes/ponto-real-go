@@ -51,6 +51,15 @@ type DayRecord struct {
 	// expediente reduzido e de dispensa, já que cada ato define uma jornada.
 	CargaEsperada int `json:"carga,omitempty"`
 
+	// LimposManualmente lista os índices de batimento ([E1,S1,E2,S2]) que o
+	// usuário apagou de propósito.
+	//
+	// Sem esse registro não havia como deixar um horário em branco: o campo
+	// gerado pelo sistema (Bloqueio == 0) era repreenchido pelo auto-preencher
+	// assim que perdia o foco. Marcar o campo como "original" resolveria o
+	// repreenchimento, mas o deixaria somente-leitura na próxima digitação.
+	LimposManualmente []int `json:"limpos,omitempty"`
+
 	// DayTypeOverride é o tipo de dia escolhido manualmente pelo usuário, que
 	// prevalece sobre a detecção automática pela observação.
 	//

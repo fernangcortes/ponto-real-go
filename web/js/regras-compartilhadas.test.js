@@ -18,7 +18,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { CONFIG } from './config.js';
-import { classifyDay, saldoDoDia, deWire } from './domain.js';
+import {
+    classifyDay, saldoDoDia, deWire,
+    avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA,
+} from './domain.js';
+
+const AVISO_ESPERADO = {
+    dispensa: MSG_CARGA_DISPENSA,
+    reduzido: MSG_CARGA_REDUZIDA,
+    '': '',
+};
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
@@ -39,5 +48,9 @@ for (const caso of fixture.casos) {
 
         assert.equal(tipo, caso.tipo, 'classificação do dia');
         assert.equal(saldo.contribui, caso.contribui, 'contribuição ao saldo real');
+
+        // O aviso de conferência também é regra: se um lado pedir a jornada do
+        // ato e o outro não, o usuário vê ⚠️ num e não no outro.
+        assert.equal(avisoDeRevisao(d, tipo), AVISO_ESPERADO[caso.aviso_carga], 'aviso de conferência');
     });
 }

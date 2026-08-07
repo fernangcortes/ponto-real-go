@@ -13,6 +13,7 @@ import {
     classifyDay, detectarTipoDia, tipoSelecionado, isWeekend,
     isAutoOccurrence, isOccurrenceDay, deveAparecerNaOcorrencia, camposFaltantes,
     minutosTrabalhados, saldoDoDia, calcularTotais, deWire, paraWire,
+    avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA,
 } from './domain.js';
 import { montarJustificativa } from './justificativa.js';
 
@@ -294,4 +295,61 @@ test('paraWire preserva false em ocorrencia_manual', () => {
 test('deWire distingue ausente de false', () => {
     assert.equal(deWire({ d: 1 }).ocorrenciaManual, null);
     assert.equal(deWire({ d: 1, ocorrencia_manual: false }).ocorrenciaManual, false);
+});
+
+// --- avisos de conferência ---
+
+test('dia de dispensa sem jornada informada pede conferência', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA PARA CURSO', e1: '08:00', s1: '12:00' });
+    assert.equal(avisoDeRevisao(d, classifyDay(d)), MSG_CARGA_DISPENSA);
+});
+
+test('informar a jornada tira o aviso na hora', () => {
+    usarJunho2026();
+    // Regressão: o aviso vinha só do backend, então limpar ou preencher a
+    // jornada na tela não o atualizava até recarregar a página.
+    const d = dia({
+        mot: 'DISPENSA PARA CURSO', e1: '08:00', s1: '12:00',
+        revisar: true, revisar_motivo: MSG_CARGA_DISPENSA,
+    });
+
+    d.carga = 240;
+    assert.equal(avisoDeRevisao(d, classifyDay(d)), '', 'com jornada informada, sem aviso');
+
+    d.carga = undefined;
+    assert.equal(avisoDeRevisao(d, classifyDay(d)), MSG_CARGA_DISPENSA, 'ao limpar, o aviso volta');
+});
+
+test('expediente reduzido tem a sua própria mensagem', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'EXPEDIENTE REDUZIDO - DEC. 10.925', e1: '08:00', s1: '12:00' });
+    assert.equal(avisoDeRevisao(d, classifyDay(d)), MSG_CARGA_REDUZIDA);
+});
+
+test('aviso vindo do backend sobre outro assunto é preservado', () => {
+    usarJunho2026();
+    const outro = 'Observação diz "SÁBADO", mas o dia 8 é Seg.';
+    const d = dia({ revisar: true, revisar_motivo: outro, e1: '08:00', s1: '12:00', e2: '13:00', s2: '17:00' });
+    assert.equal(avisoDeRevisao(d, classifyDay(d)), outro);
+});
+
+test('dia sem pendência não mostra aviso', () => {
+    usarJunho2026();
+    assert.equal(avisoDeRevisao(diaCheio(), 'completo'), '');
+});
+
+// --- apagar um horário de propósito ---
+
+test('limpos sobrevive ao round-trip com o backend', () => {
+    // Sem persistir a intenção, o auto-preencher regenera o campo apagado
+    // assim que o usuário edita qualquer outro horário do mesmo dia.
+    const doBackend = { d: 1, o: [0, 1, 1, 1], limpos: [0] };
+    assert.deepEqual(deWire(doBackend).limpos, [0]);
+    assert.deepEqual(paraWire(deWire(doBackend)).limpos, [0]);
+});
+
+test('sem campos apagados, limpos não vai para o backend', () => {
+    assert.equal(paraWire(dia()).limpos, undefined);
+    assert.deepEqual(deWire({ d: 1 }).limpos, []);
 });

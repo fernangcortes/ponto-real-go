@@ -11,7 +11,7 @@ import { CONFIG, resolverApiBase, CAMPOS_HORARIO, MESES_NOMES, TIPO_POR_SELECAO,
 import { t2m, m2t, m2tUnsigned, isTimeValid, esc, copiavel, clamp, randBetween, avoidRoundMins } from './js/util.js';
 import {
     classifyDay, tipoSelecionado, isAutoOccurrence, isOccurrenceDay,
-    camposFaltantes, deveAparecerNaOcorrencia, calcularTotais,
+    camposFaltantes, deveAparecerNaOcorrencia, calcularTotais, avisoDeRevisao,
     isWeekend, deWire, paraWire,
 } from './js/domain.js';
 import { montarJustificativa, getJustTemplate, salvarJustTemplate, JUST_TEMPLATE_PADRAO } from './js/justificativa.js';
@@ -150,8 +150,14 @@ const autoFillDay = (idx, changedField) => {
     if (tipo === 'dispensa' || tipo === 'reduzido') return;
 
     // === Auto-fill: preencher campos vazios restantes ===
+    // Campo que o usuário apagou de propósito fica fora: antes ele era
+    // repreenchido no mesmo instante em que perdia o foco, e não havia como
+    // deixar um horário em branco.
+    const limpos = d.limpos || [];
+    const podePreencher = (i) => d.o[i] === 0 && !limpos.includes(i);
+
     const vals = fields.map(f => isTimeValid(d[f]) ? t2m(d[f]) : null);
-    const empty = fields.filter((f, i) => vals[i] === null && d.o[i] === 0);
+    const empty = fields.filter((f, i) => vals[i] === null && podePreencher(i));
 
     if (empty.length === 0) return; // nada pra preencher
 
@@ -162,7 +168,7 @@ const autoFillDay = (idx, changedField) => {
     let changed = false;
     const set = (f, m) => {
         const fi = fields.indexOf(f);
-        if (vals[fi] === null && d.o[fi] === 0) {
+        if (vals[fi] === null && podePreencher(fi)) {
             const finalM = avoidRoundMins(m);
             d[f] = m2tUnsigned(Math.max(0, Math.min(1439, finalM)));
             vals[fi] = finalM;
@@ -175,40 +181,40 @@ const autoFillDay = (idx, changedField) => {
         const almoco = randBetween(ALMOCO_MIN, ALMOCO_MAX);
         const totalDisp = vals[3] - vals[0] - almoco;
         const manha = Math.round(totalDisp * 0.48) + randBetween(-5, 5);
-        if (vals[1] === null && d.o[1] === 0) set('s1', vals[0] + manha);
-        if (vals[2] === null && d.o[2] === 0) {
+        if (vals[1] === null && podePreencher(1)) set('s1', vals[0] + manha);
+        if (vals[2] === null && podePreencher(2)) {
             const s1Val = vals[1] !== null ? vals[1] : vals[0] + manha;
             set('e2', s1Val + almoco);
         }
     }
     // Caso: e1 conhecido, s2 faltando
-    if (vals[0] !== null && vals[3] === null && d.o[3] === 0) {
+    if (vals[0] !== null && vals[3] === null && podePreencher(3)) {
         const almoco = randBetween(ALMOCO_MIN, ALMOCO_MAX);
         const manha = Math.round(CARGA * 0.48) + randBetween(-5, 5);
-        if (vals[1] === null && d.o[1] === 0) set('s1', vals[0] + manha);
+        if (vals[1] === null && podePreencher(1)) set('s1', vals[0] + manha);
         const s1Val = vals[1] !== null ? vals[1] : vals[0] + manha;
-        if (vals[2] === null && d.o[2] === 0) set('e2', s1Val + almoco);
+        if (vals[2] === null && podePreencher(2)) set('e2', s1Val + almoco);
         const e2Val = vals[2] !== null ? vals[2] : s1Val + almoco;
         const tarde = CARGA - (s1Val - vals[0]);
         set('s2', e2Val + Math.max(tarde, 180));
     }
     // Caso: s2 conhecido, e1 faltando
-    if (vals[3] !== null && vals[0] === null && d.o[0] === 0) {
+    if (vals[3] !== null && vals[0] === null && podePreencher(0)) {
         const almoco = randBetween(ALMOCO_MIN, ALMOCO_MAX);
         set('e1', vals[3] - CARGA - almoco);
         const e1Val = vals[0] !== null ? vals[0] : vals[3] - CARGA - almoco;
         const manha = Math.round(CARGA * 0.48) + randBetween(-5, 5);
-        if (vals[1] === null && d.o[1] === 0) set('s1', e1Val + manha);
+        if (vals[1] === null && podePreencher(1)) set('s1', e1Val + manha);
         const s1Val = vals[1] !== null ? vals[1] : e1Val + manha;
-        if (vals[2] === null && d.o[2] === 0) set('e2', s1Val + almoco);
+        if (vals[2] === null && podePreencher(2)) set('e2', s1Val + almoco);
     }
     // Caso: s1 e e2 conhecidos mas e1 ou s2 faltando
     if (vals[1] !== null && vals[2] !== null) {
-        if (vals[0] === null && d.o[0] === 0) {
+        if (vals[0] === null && podePreencher(0)) {
             const manha = Math.round(CARGA * 0.48) + randBetween(-5, 5);
             set('e1', vals[1] - manha);
         }
-        if (vals[3] === null && d.o[3] === 0) {
+        if (vals[3] === null && podePreencher(3)) {
             const e1Val = vals[0] !== null ? vals[0] : vals[1] - 240;
             const tarde = CARGA - (vals[1] - e1Val);
             set('s2', vals[2] + Math.max(tarde, 180));
@@ -615,6 +621,22 @@ const syncChange = (idx, field, newVal) => {
     const d = daysData[idx];
     d[field] = newVal;
 
+    // Registrar se o campo foi apagado DE PROPÓSITO.
+    //
+    // Sem isso não havia como deixar um horário em branco: o auto-preencher
+    // via o campo vazio e marcado como gerado, e o repreenchia no mesmo
+    // instante em que perdia o foco. Digitar um valor de volta desfaz a marca.
+    const fi = CAMPOS_HORARIO.indexOf(field);
+    if (fi !== -1) {
+        const limpos = new Set(d.limpos || []);
+        if (isTimeValid(newVal)) {
+            limpos.delete(fi);
+        } else {
+            limpos.add(fi);
+        }
+        d.limpos = [...limpos].sort();
+    }
+
     // Sync para input da tabela principal (se editado via ocorrência)
     const mainInput = document.getElementById(`m_${field}_${d.d}`);
     if (mainInput) mainInput.value = newVal;
@@ -731,16 +753,18 @@ const renderTables = () => {
             if (tipo === 'falta') {
                 diaDisplay = `<span title="Falta injustificada" style="color:var(--danger)">${diaFmt} 🔴</span>`;
             }
-            // Sinalizado pelo backend: observação deslocada ou carga a conferir.
-            if (d.revisar) {
-                const motivo = d.revisar_motivo || 'Requer conferência manual';
-                diaDisplay += ` <span class="revisar-badge" title="${esc(motivo)}">⚠️</span>`;
-            }
-
             // Seletor de tipo de dia. A detecção automática é só LIDA aqui —
             // gravá-la em d.dayTypeOverride durante o render transformava um
             // palpite do sistema em escolha do usuário, e a tornava permanente.
             const selected = tipoSelecionado(d);
+
+            // Aviso de conferência. Derivado do estado atual, não só do que o
+            // backend mandou: limpar a jornada de um dia de dispensa precisa
+            // trazer o ⚠️ de volta na hora, sem recarregar a página.
+            const aviso = avisoDeRevisao(d, tipo);
+            if (aviso) {
+                diaDisplay += ` <span class="revisar-badge" title="${esc(aviso)}">⚠️</span>`;
+            }
 
             const selectClass = TIPO_POR_SELECAO[selected] ? ` is-${selected}` : '';
             const motivoText = d.mot ? ` title="${esc(d.mot)}"` : '';

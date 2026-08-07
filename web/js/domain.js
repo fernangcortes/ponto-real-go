@@ -123,6 +123,32 @@ export const deveAparecerNaOcorrencia = (d, tipo) => {
     return CAMPOS_HORARIO.some((f, fi) => bloqueio[fi] === 0 && isTimeValid(d[f]));
 };
 
+// --- Avisos de conferência ---
+
+// Mensagens que o backend também emite. Repetidas aqui porque o aviso precisa
+// acompanhar a edição na hora: derivá-lo só no servidor deixava o ⚠️
+// desatualizado até a página ser recarregada.
+export const MSG_CARGA_REDUZIDA = 'Expediente reduzido: confira a carga horária do dia definida pelo decreto.';
+export const MSG_CARGA_DISPENSA = 'Dispensa: informe a jornada exigida neste dia, conforme o ato que a concedeu.';
+
+// avisoDeRevisao devolve o texto do ⚠️ da linha, ou '' se não há aviso.
+//
+// Combina duas origens: o que o backend apurou na leitura (observação
+// deslocada, batimento perdido na extração) e o que depende do estado atual da
+// edição — a jornada do ato ainda não informada, que o usuário muda na tela.
+export const avisoDeRevisao = (d, tipo) => {
+    if (CARGA_POR_ATO.includes(tipo) && !(d.carga > 0)) {
+        return tipo === 'dispensa' ? MSG_CARGA_DISPENSA : MSG_CARGA_REDUZIDA;
+    }
+
+    // Aviso de carga vindo do backend perde a validade assim que a jornada é
+    // informada; os demais continuam valendo.
+    const doBackend = d.revisar_motivo || '';
+    if (doBackend === MSG_CARGA_REDUZIDA || doBackend === MSG_CARGA_DISPENSA) return '';
+
+    return d.revisar ? (doBackend || 'Requer conferência manual') : '';
+};
+
 // --- Saldos ---
 
 export const diaCompleto = (d) => CAMPOS_HORARIO.every((f) => isTimeValid(d[f]));
@@ -225,6 +251,7 @@ export const deWire = (d) => ({
     o: d.o || undefined,
     tipo: d.tipo || undefined,
     carga: d.carga || undefined,
+    limpos: d.limpos || [],
     revisar: d.revisar || false,
     revisar_motivo: d.revisar_motivo || '',
     dayTypeOverride: d.day_type_override || null,
@@ -249,6 +276,9 @@ export const paraWire = (d) => ({
     o: d.o || undefined,
     tipo: d.tipo || undefined,
     carga: d.carga || undefined,
+    // Índices que o usuário apagou de propósito: sem isso o auto-preencher os
+    // regenera assim que o campo perde o foco, e não há como deixar em branco.
+    limpos: d.limpos && d.limpos.length ? d.limpos : undefined,
     // revisar/revisar_motivo não são salvos: o backend os recalcula na leitura,
     // senão um aviso já resolvido ficaria colado no mês para sempre.
     day_type_override: d.dayTypeOverride || undefined,

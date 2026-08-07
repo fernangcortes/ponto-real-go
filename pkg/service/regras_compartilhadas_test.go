@@ -25,10 +25,11 @@ import (
 // batimento é falta ou folga. Testar só o motor deixaria essa parte de fora.
 
 type casoCompartilhado struct {
-	Nome      string           `json:"nome"`
-	Dia       models.DayRecord `json:"dia"`
-	Tipo      string           `json:"tipo"`
-	Contribui int              `json:"contribui"`
+	Nome       string           `json:"nome"`
+	Dia        models.DayRecord `json:"dia"`
+	Tipo       string           `json:"tipo"`
+	Contribui  int              `json:"contribui"`
+	AvisoCarga string           `json:"aviso_carga"`
 }
 
 type fixtureRegras struct {
@@ -94,6 +95,16 @@ func TestRegrasCompartilhadas(t *testing.T) {
 			}
 			if got := resp.Summary.SaldoTotalRealMinutos; got != caso.Contribui {
 				t.Errorf("contribuição ao saldo real = %d; esperado %d", got, caso.Contribui)
+			}
+
+			// O aviso de conferência também é regra: se um lado pedir a jornada
+			// do ato e o outro não, o usuário vê ⚠️ num e não no outro.
+			esperado := map[string]string{
+				"dispensa": rules.MsgRevisarCargaDispensa,
+				"reduzido": rules.MsgRevisarCargaReduzida,
+			}[caso.AvisoCarga]
+			if dia.RevisarMotivo != esperado {
+				t.Errorf("aviso = %q; esperado %q", dia.RevisarMotivo, esperado)
 			}
 		})
 	}
