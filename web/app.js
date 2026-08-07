@@ -1,141 +1,30 @@
 // ============================================
 // Ponto Real Go — Front-end Application
 // ============================================
+//
+// Este arquivo concentra o que depende do DOM: renderização, eventos, upload,
+// visualizador de documento e persistência. A regra de negócio e as conversões
+// puras vivem em js/domain.js e js/util.js, onde são testáveis sem navegador.
 
-// --- Configuração ---
-const CONFIG = {
-    version: '1.0.0',
-    mesAno: '',
-    mesNome: '',
-    apiBase: (window.location.protocol === 'file:' || (window.location.hostname === 'localhost' && window.location.port !== '8080' && window.location.port !== ''))
-        ? 'http://localhost:8080'
-        : '',
-};
+import { CONFIG, resolverApiBase, CAMPOS_HORARIO, MESES_NOMES, TIPO_POR_SELECAO,
+         TIPOS_DE_DIA, CARGA_POR_ATO, PRESETS_CARGA } from './js/config.js';
+import { t2m, m2t, m2tUnsigned, isTimeValid, esc, copiavel, clamp, randBetween, avoidRoundMins } from './js/util.js';
+import {
+    classifyDay, tipoSelecionado, isAutoOccurrence, isOccurrenceDay,
+    camposFaltantes, deveAparecerNaOcorrencia, calcularTotais,
+    isWeekend, deWire, paraWire,
+} from './js/domain.js';
+import { montarJustificativa, getJustTemplate, salvarJustTemplate, JUST_TEMPLATE_PADRAO } from './js/justificativa.js';
+
+CONFIG.apiBase = resolverApiBase(window.location);
 
 // --- Dados (começa vazio, populado via upload) ---
-let daysData = [];
+const daysData = [];
 let activeServidor = {};
 
-// --- Justificativa: frase padrão editável ---
-// Fica antes dos horários faltantes. Trocar para "esqueci de registrar"
-// produz "esqueci de registrar a saída".
-const JUST_TEMPLATE_PADRAO = 'O ponto não registrou';
-const JUST_TEMPLATE_KEY = 'pontoReal.justTemplate';
-
-const getJustTemplate = () => {
-    const salvo = (localStorage.getItem(JUST_TEMPLATE_KEY) || '').trim();
-    return salvo || JUST_TEMPLATE_PADRAO;
-};
-
-// Monta "DD/MM/AAAA - <texto padrão> a entrada e a saída."
-const montarJustificativa = (dataFmt, faltantes) => {
-    const lista = faltantes.join(', ').replace(/,([^,]*)$/, ' e$1');
-    return `${dataFmt} - ${getJustTemplate()} ${lista}.`;
-};
-
-// --- Utilidades ---
-const t2m = (t) => {
-    if (!t || t === '**:**') return 0;
-    const parts = t.split(':');
-    if (parts.length !== 2) return 0;
-    return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-};
-
-const m2t = (m) => {
-    const sign = m < 0 ? '-' : '+';
-    const abs = Math.abs(m);
-    return sign + String(Math.floor(abs / 60)).padStart(2, '0') + ':' + String(abs % 60).padStart(2, '0');
-};
-
-const m2tUnsigned = (m) => {
-    const abs = Math.abs(m);
-    return String(Math.floor(abs / 60)).padStart(2, '0') + ':' + String(abs % 60).padStart(2, '0');
-};
-
-const parseOrigSaldo = (s) => {
-    if (!s) return 0;
-    const isNeg = s.includes('-');
-    const pts = s.replace('-', '').replace('+', '').split(':');
-    return pts.length === 2 ? (isNeg ? -1 : 1) * (parseInt(pts[0]) * 60 + parseInt(pts[1])) : 0;
-};
-
-const isTimeValid = (t) => {
-    if (!t || t === '**:**') return false;
-    const parts = t.split(':');
-    if (parts.length !== 2) return false;
-    const h = parseInt(parts[0]), m = parseInt(parts[1]);
-    return !isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59;
-};
-
-// --- Calendário real: obter dia da semana a partir do mês/ano ---
-const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-const getRealWeekday = (dayNum) => {
-    if (!CONFIG.mesAno) return null;
-    const [mm, yyyy] = CONFIG.mesAno.split('/');
-    const date = new Date(parseInt(yyyy), parseInt(mm) - 1, dayNum);
-    return DIAS_SEMANA[date.getDay()];
-};
-
-const isWeekend = (d) => {
-    // Primeiro: tentar pelo calendário real
-    const realW = getRealWeekday(d.d);
-    if (realW) return realW === 'Sáb' || realW === 'Dom';
-    // Fallback: usar campo w extraído
-    return d.w === 'Sáb' || d.w === 'Sab' || d.w === 'Dom';
-};
-
-// Remove acentos para comparar texto de observação vindo da ficha.
-const normalizeObs = (s) => (s || '').toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-// Expediente reduzido por decreto: o ponto batido já vale como cumprido,
-// então o sistema nunca gera horário nesses dias.
-const isExpedienteReduzido = (d) => {
-    const t = normalizeObs(d.mot) + ' ' + normalizeObs(d.ocor);
-    return t.includes('EXPEDIENTE REDUZIDO') || t.includes('HORARIO REDUZIDO') || t.includes('JORNADA REDUZIDA');
-};
-
-// --- Classificação de dia ---
-const classifyDay = (d) => {
-    // Respeitar override manual do usuário
-    if (d.dayTypeOverride === 'fds') return 'folga';
-    if (d.dayTypeOverride === 'feriado') return 'recesso';
-    if (d.dayTypeOverride === 'folga') return 'folga';
-    if (d.dayTypeOverride === 'convocacao') return 'recesso';
-    if (d.dayTypeOverride === 'dispensa') return 'dispensa';
-
-    if (d.dayTypeOverride === 'reduzido') return 'reduzido';
-
-    if (isExpedienteReduzido(d)) return 'reduzido';
-    if (d.mot && d.mot.toUpperCase().includes('DISPENSA')) return 'dispensa';
-    if (d.mot && (d.mot.toUpperCase().includes('RECESSO') || d.mot.toUpperCase().includes('FERIADO') || d.mot.toUpperCase().includes('FACULTATIVO'))) return 'recesso';
-    if (isWeekend(d)) return 'folga';
-
-    let pontos = 0;
-    if (isTimeValid(d.e1)) pontos++;
-    if (isTimeValid(d.s1)) pontos++;
-    if (isTimeValid(d.e2)) pontos++;
-    if (isTimeValid(d.s2)) pontos++;
-
-    if (pontos === 4) return 'completo';
-    if (pontos > 0) return 'parcial';
-    if (!isWeekend(d) && d.saldo === '-08:00') return 'falta';
-    return 'folga';
-};
-
 // --- Ocorrência manual: adicionar/remover dia da seção "Ocorrência" do SEI ---
-// Por padrão a ocorrência é derivada de d.o (existe algum horário gerado).
-// d.ocorrenciaManual permite sobrepor essa detecção: true força inclusão,
-// false força exclusão, null/undefined mantém o comportamento automático.
-const isAutoOccurrence = (d) => !!(d.o && d.o.includes(0));
 
-const isOccurrenceDay = (d) => {
-    if (d.ocorrenciaManual === true) return true;
-    if (d.ocorrenciaManual === false) return false;
-    return isAutoOccurrence(d);
-};
-
-window.toggleOcorrenciaManual = (idx, checked) => {
+const toggleOcorrenciaManual = (idx, checked) => {
     const d = daysData[idx];
     // Se o novo valor coincide com o que a detecção automática já daria,
     // não precisa de override — volta para "automático".
@@ -145,43 +34,59 @@ window.toggleOcorrenciaManual = (idx, checked) => {
     scheduleSave();
 };
 
-window.removeOcorrencia = (idx) => {
-    window.toggleOcorrenciaManual(idx, false);
+const removeOcorrencia = (idx) => {
+    toggleOcorrenciaManual(idx, false);
 };
 
-window.syncJustManual = (idx, value) => {
+const syncJustManual = (idx, value) => {
     daysData[idx].justManual = value;
     scheduleSave();
 };
 
-// --- Feature 2: Day Type Override ---
-window.changeDayType = (idx, newType) => {
-    daysData[idx].dayTypeOverride = newType === 'util' ? null : newType;
-    const container = document.getElementById('tablesContainer');
-    container.innerHTML = '';
+// --- Escolha manual do tipo de dia ---
+// Guarda inclusive "util": é assim que o usuário desfaz uma detecção
+// equivocada. Antes "util" virava null e a detecção automática reescrevia por
+// cima no render seguinte, tornando a escolha impossível.
+// redesenharTabela é necessário quando a mudança altera a ESTRUTURA da linha —
+// trocar o tipo do dia faz aparecer ou sumir o seletor de jornada, por exemplo.
+// Mudanças que só alteram valores exibidos bastam chamar updateAll().
+const redesenharTabela = () => {
+    document.getElementById('tablesContainer').innerHTML = '';
     renderTables();
     updateAll();
+};
+
+const changeDayType = (idx, newType) => {
+    daysData[idx].dayTypeOverride = newType;
+    redesenharTabela();
     scheduleSave();
 };
 
-// Carga horária exigida num dia de expediente reduzido (minutos, do decreto).
-// Em branco o dia fica neutro: não gera saldo nem déficit.
-window.changeCarga = (idx, valor) => {
+// changeCargaPreset trata os atalhos do seletor de jornada.
+const changeCargaPreset = (idx, valor) => {
+    const d = daysData[idx];
+    if (valor === 'custom') {
+        d.cargaLivre = true; // só de interface; não é gravado no mês
+    } else {
+        d.cargaLivre = false;
+        const min = parseInt(valor, 10);
+        d.carga = Number.isFinite(min) && min > 0 ? min : undefined;
+    }
+    redesenharTabela(); // o campo livre aparece/some conforme a escolha
+    scheduleSave();
+};
+
+// changeCarga trata o campo livre de minutos. Não redesenha: a estrutura da
+// linha não muda, e redesenhar tiraria o foco do campo a cada digitação.
+const changeCarga = (idx, valor) => {
     const min = parseInt(valor, 10);
     daysData[idx].carga = Number.isFinite(min) && min > 0 ? min : undefined;
     updateAll();
     scheduleSave();
 };
 
-// --- Feature 4: Auto-fill client-side (espelho do RulesAdjuster) ---
-const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const avoidRoundMins = (m) => {
-    const mins = m % 60;
-    if (mins === 0) return m + randBetween(1, 5);
-    if (mins % 5 === 0) return m + randBetween(1, 3);
-    return m;
-};
-
+// --- Auto-fill no cliente (espelho do RulesAdjuster do backend) ---
+// randBetween e avoidRoundMins vêm de js/util.js.
 const autoFillDay = (idx, changedField) => {
     const d = daysData[idx];
     if (!d.o) return; // sem info de originais, não auto-preencher
@@ -381,18 +286,89 @@ const copyToClipboard = (text, sourceEl) => {
     });
 };
 
+// Em window porque só é chamada dos onclick embutidos no HTML gerado.
+// Como const de topo também funcionaria, mas ficava indistinguível de uma
+// função morta — e havia um `const copyBtn` local mais abaixo sombreando esta.
 const copyBtn = (targetId) => {
     const el = document.getElementById(targetId);
     const val = el.value || el.innerText;
     copyToClipboard(val, el);
 };
 
-// Copiar célula ao clicar (delegado)
-window.copyCell = (text, el) => {
-    if (text && text.trim()) copyToClipboard(text.trim(), el);
-};
+// Copiar célula ao clicar, por delegação: um listener só cobre toda célula
+// marcada com data-copy, presente e futura.
+//
+// Substituiu o window.copyCell chamado de onclick embutido, onde o valor
+// precisava atravessar uma string JS dentro de um atributo HTML.
+document.addEventListener('click', (e) => {
+    const alvo = e.target.closest('[data-copy]');
+    if (alvo) {
+        const texto = (alvo.dataset.copy || '').trim();
+        if (texto) copyToClipboard(texto, alvo);
+        return;
+    }
 
-// Copiar linha completa
+    const copiarCampo = e.target.closest('[data-copy-input]');
+    if (copiarCampo) {
+        copyBtn(copiarCampo.dataset.copyInput);
+        return;
+    }
+
+    const copiarLinha = e.target.closest('[data-copiar-linha]');
+    if (copiarLinha) {
+        copyRow(Number(copiarLinha.dataset.copiarLinha));
+        return;
+    }
+
+    const remover = e.target.closest('[data-remover-ocorrencia]');
+    if (remover) {
+        removeOcorrencia(Number(remover.dataset.removerOcorrencia));
+    }
+});
+
+// focus/blur não borbulham; focusin/focusout sim.
+document.addEventListener('focusin', (e) => {
+    const campo = e.target.closest('[data-dia]');
+    if (campo) saveState(Number(campo.dataset.dia));
+});
+
+document.addEventListener('focusout', (e) => {
+    const campo = e.target.closest('[data-dia][data-campo]');
+    if (campo) {
+        syncChange(Number(campo.dataset.dia), campo.dataset.campo, campo.value);
+        return;
+    }
+
+    const just = e.target.closest('[data-just-manual]');
+    if (just) {
+        syncJustManual(Number(just.dataset.justManual), just.value);
+        return;
+    }
+
+    const carga = e.target.closest('[data-carga]');
+    if (carga) changeCarga(Number(carga.dataset.carga), carga.value);
+});
+
+document.addEventListener('change', (e) => {
+    const tipo = e.target.closest('[data-tipo-dia]');
+    if (tipo) {
+        changeDayType(Number(tipo.dataset.tipoDia), tipo.value);
+        return;
+    }
+
+    const preset = e.target.closest('[data-carga-preset]');
+    if (preset) {
+        changeCargaPreset(Number(preset.dataset.cargaPreset), preset.value);
+        return;
+    }
+
+    const ocorrencia = e.target.closest('[data-ocorrencia-manual]');
+    if (ocorrencia) {
+        toggleOcorrenciaManual(Number(ocorrencia.dataset.ocorrenciaManual), ocorrencia.checked);
+    }
+});
+
+// Copiar linha completa — chamada apenas dos onclick embutidos no HTML gerado.
 const copyRow = (idx) => {
     const d = daysData[idx];
     const dia = String(d.d).padStart(2, '0');
@@ -485,19 +461,28 @@ const renderSaldoCellContent = (d, realDiff) => {
     if (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao') {
         const labels = { feriado: 'Feriado', folga: 'Folga', fds: 'FDS', convocacao: 'Convocação' };
         const label = labels[d.dayTypeOverride] || d.dayTypeOverride;
-        return `<span style="color:var(--text-muted);font-size:10px;">${label}</span>`;
+        return `<span style="color:var(--text-muted);font-size:10px;">${esc(label)}</span>`;
     }
 
+    // Saldo riscado (o lido da imagem) sobre o calculado.
+    const saldoOriginal = (valor) =>
+        `<span class="original-saldo" ${copiavel(valor)} title="Saldo original da imagem (Clique para copiar)" style="text-decoration:line-through; color:var(--text-muted); font-size:10px; cursor:pointer;">${esc(valor)}</span>`;
+
+    const saldoCalculado = (valor, cor) =>
+        `<span class="real-saldo" ${copiavel(valor)} title="Saldo calculado (Clique para copiar)" style="color:${cor}; font-weight:600; cursor:pointer;">${esc(valor.replace('+', ''))}</span>`;
+
+    const empilhado = (cima, baixo) =>
+        `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">${cima}${baixo}</div>`;
+
     const tipo = classifyDay(d);
+    const origSaldo = d.saldo || '';
+
     if (tipo === 'falta') {
-        const origSaldo = d.saldo || '';
+        const calculado = saldoCalculado('-08:00', 'var(--danger)');
         if (origSaldo && origSaldo !== '-08:00') {
-            return `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
-                <span class="original-saldo" onclick="event.stopPropagation(); copyCell('${origSaldo}', this)" title="Saldo original da imagem (Clique para copiar)" style="text-decoration:line-through; color:var(--text-muted); font-size:10px; cursor:pointer;">${origSaldo}</span>
-                <span class="real-saldo" onclick="event.stopPropagation(); copyCell('-08:00', this)" title="Saldo calculado (Clique para copiar)" style="color:var(--danger); font-weight:600; cursor:pointer;">-08:00</span>
-            </div>`;
+            return empilhado(saldoOriginal(origSaldo), calculado);
         }
-        return `<span onclick="event.stopPropagation(); copyCell('-08:00', this)" title="Saldo calculado (Clique para copiar)" style="color:var(--danger); font-weight:600; cursor:pointer;">-08:00</span>`;
+        return calculado;
     }
 
     // Determinar saldo real (calculado)
@@ -508,191 +493,125 @@ const renderSaldoCellContent = (d, realDiff) => {
         realFormatted = d.saldo_real;
     }
 
-    const origSaldo = d.saldo || '';
-
     // Se ambos existem e são diferentes
     if (realFormatted && origSaldo && realFormatted.replace('+', '') !== origSaldo.replace('+', '')) {
-        const isNegReal = realFormatted.includes('-');
-        return `<div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
-            <span class="original-saldo" onclick="event.stopPropagation(); copyCell('${origSaldo}', this)" title="Saldo original da imagem (Clique para copiar)" style="text-decoration:line-through; color:var(--text-muted); font-size:10px; cursor:pointer;">${origSaldo}</span>
-            <span class="real-saldo" onclick="event.stopPropagation(); copyCell('${realFormatted}', this)" title="Saldo calculado (Clique para copiar)" style="color:${isNegReal ? 'var(--danger)' : 'var(--success)'}; font-weight:600; cursor:pointer;">${realFormatted.replace('+', '')}</span>
-        </div>`;
+        const cor = realFormatted.includes('-') ? 'var(--danger)' : 'var(--success)';
+        return empilhado(saldoOriginal(origSaldo), saldoCalculado(realFormatted, cor));
     }
 
     // Se apenas o real/calculado existe (ou são iguais)
     if (realFormatted) {
-        const isNeg = realFormatted.includes('-');
-        return `<span onclick="event.stopPropagation(); copyCell('${realFormatted}', this)" title="Saldo calculado (Clique para copiar)" style="color:${isNeg ? 'var(--danger)' : 'var(--text)'}; font-weight:600; cursor:pointer;">${realFormatted.replace('+', '')}</span>`;
+        const cor = realFormatted.includes('-') ? 'var(--danger)' : 'var(--text)';
+        return saldoCalculado(realFormatted, cor);
     }
 
     // Se apenas o original existe
     if (origSaldo) {
-        const isNeg = origSaldo.includes('-');
-        return `<span onclick="event.stopPropagation(); copyCell('${origSaldo}', this)" title="Saldo original da imagem (Clique para copiar)" style="color:${isNeg ? 'var(--danger)' : 'var(--text)'}; cursor:pointer;">${origSaldo}</span>`;
+        const cor = origSaldo.includes('-') ? 'var(--danger)' : 'var(--text)';
+        return `<span ${copiavel(origSaldo)} title="Saldo original da imagem (Clique para copiar)" style="color:${cor}; cursor:pointer;">${esc(origSaldo)}</span>`;
     }
 
     return `<span class="empty-time">——:——</span>`;
 };
 
-// --- Atualizar tudo ---
-const updateAll = () => {
-    let totalSaldoOficial = 0;
-    let totalSaldoReal = 0;
-    let totalFaltas = 0;
-    let totalAjustados = 0;
-    let totalCompletos = 0;
+// ============================================
+// Renderização — consome o resultado do cálculo
+// ============================================
 
+const botaoCopiar = (alvo) =>
+    `<button class="icon-btn" data-copy-input="${esc(alvo)}"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>`;
+
+// atualizarLinhaPrincipal reflete na tabela o que o cálculo apurou para o dia.
+const atualizarLinhaPrincipal = ({ d, tipo, diff, trabalhado }) => {
+    const linha = document.getElementById(`row_${d.d}`);
+    if (linha) linha.setAttribute('data-type', tipo);
+
+    if (trabalhado !== null) {
+        const esEl = document.getElementById(`m_es_${d.d}`);
+        if (esEl) esEl.innerText = m2tUnsigned(trabalhado);
+    }
+
+    const saldoEl = document.getElementById(`m_saldo_${d.d}`);
+    if (saldoEl) saldoEl.innerHTML = renderSaldoCellContent(d, diff);
+};
+
+const linhaOcorrencia = ({ d, idx, tipo }) => {
+    const isDispensa = tipo === 'dispensa';
+    const bloqueio = d.o || [1, 1, 1, 1];
+
+    const campo = (valor, isOrig, f) => {
+        // Dispensa: campos não preenchidos ficam como placeholder editável.
+        const vazio = isDispensa && !isTimeValid(valor) && !isOrig;
+        const attrs = isOrig ? 'class="readonly" readonly' : '';
+        return `<input type="time" value="${vazio ? '' : esc(valor)}" ${attrs} data-dia="${idx}" data-campo="${f}">`;
+    };
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(String(d.d).padStart(2, '0'))}/${esc(CONFIG.mesAno)}</td>
+        ${CAMPOS_HORARIO.map((f, fi) => `<td>${campo(d[f], bloqueio[fi], f)}</td>`).join('')}
+        <td class="col-acao-manual"><button class="icon-btn" title="Remover esta ocorrência do documento SEI" data-remover-ocorrencia="${idx}">✕</button></td>`;
+    return tr;
+};
+
+const linhaJustificativa = ({ d, idx, tipo }) => {
+    const faltantes = camposFaltantes(d, tipo === 'dispensa');
+    const tr = document.createElement('tr');
+
+    if (faltantes.length > 0) {
+        const dataFmt = `${String(d.d).padStart(2, '0')}/${CONFIG.mesAno || '??/????'}`;
+        const frase = montarJustificativa(dataFmt, faltantes);
+        tr.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" value="${esc(frase)}">
+            ${botaoCopiar(`just_${d.d}`)}</td>`;
+        return tr;
+    }
+
+    // Ocorrência sem horário gerado (ex.: incluída manualmente): não há como
+    // inferir a frase, então o usuário digita.
+    tr.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" placeholder="Descreva o motivo da ocorrência..." value="${esc(d.justManual || '')}" data-just-manual="${idx}">
+        ${botaoCopiar(`just_${d.d}`)}</td>`;
+    return tr;
+};
+
+const renderOcorrencias = (porDia) => {
     const ocorBody = document.getElementById('ocorrenciaBody');
     const justBody = document.getElementById('justificativaBody');
     ocorBody.innerHTML = '';
     justBody.innerHTML = '';
 
-    daysData.forEach((d, idx) => {
-        const tipo = classifyDay(d);
-        const fields = ['e1', 's1', 'e2', 's2'];
+    porDia
+        .filter(({ d, tipo }) => deveAparecerNaOcorrencia(d, tipo))
+        .forEach((item) => {
+            ocorBody.appendChild(linhaOcorrencia(item));
+            justBody.appendChild(linhaJustificativa(item));
+        });
+};
 
-        // Atualizar tipo visual na tabela principal
-        const mainRow = document.getElementById(`row_${d.d}`);
-        if (mainRow) mainRow.setAttribute('data-type', tipo);
+const renderStatusBar = (totais) => {
+    document.getElementById('totalFaltas').innerText = totais.faltas;
+    document.getElementById('totalAjustados').innerText = totais.ajustados;
+    document.getElementById('totalCompletos').innerText = totais.completos;
 
-        // Contagens
-        if (tipo === 'falta') totalFaltas++;
-        if (tipo === 'completo') totalCompletos++;
-        if (isOccurrenceDay(d)) totalAjustados++;
+    const oficialEl = document.getElementById('saldoTotalOficial');
+    if (oficialEl) oficialEl.innerText = m2t(totais.saldoOficial);
 
-        let realDiff = null;
-
-        // Feature 2: Se override feriado/folga/fds/convocação, saldo = 0
-        if (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao') {
-            realDiff = 0;
-            // Não adiciona nada ao totalSaldoReal (dia neutro)
-        } else if (tipo === 'reduzido') {
-            // Expediente reduzido: a jornada exigida vem do decreto (d.carga).
-            // Sem carga informada o dia é neutro — nunca herda o saldo negativo
-            // extraído da ficha, que foi apurado contra a jornada cheia.
-            let worked = 0;
-            if (isTimeValid(d.e1) && isTimeValid(d.s1)) worked += t2m(d.s1) - t2m(d.e1);
-            if (isTimeValid(d.e2) && isTimeValid(d.s2)) worked += t2m(d.s2) - t2m(d.e2);
-
-            realDiff = d.carga > 0 ? worked - d.carga : 0;
-            totalSaldoReal += realDiff;
-
-            const esEl = document.getElementById(`m_es_${d.d}`);
-            if (esEl && worked > 0) esEl.innerText = m2tUnsigned(worked);
-        } else if (tipo === 'dispensa') {
-            // Dispensa: calcular saldo com base nos horários preenchidos
-            // Esperado = metade da carga diária (4h = 240 min)
-            const CARGA_DISPENSA = 240;
-            let worked = 0;
-            if (isTimeValid(d.e1) && isTimeValid(d.s1)) worked += t2m(d.s1) - t2m(d.e1);
-            if (isTimeValid(d.e2) && isTimeValid(d.s2)) worked += t2m(d.s2) - t2m(d.e2);
-            if (worked > 0) {
-                realDiff = worked - CARGA_DISPENSA;
-                totalSaldoReal += realDiff;
-                const esEl = document.getElementById(`m_es_${d.d}`);
-                if (esEl) esEl.innerText = m2tUnsigned(worked);
-            } else {
-                totalSaldoReal += parseOrigSaldo(d.saldo);
-            }
-        } else if (isTimeValid(d.e1) && isTimeValid(d.s1) && isTimeValid(d.e2) && isTimeValid(d.s2)) {
-            const m1 = t2m(d.e1), m2 = t2m(d.s1), m3 = t2m(d.e2), m4 = t2m(d.s2);
-            realDiff = ((m2 - m1) + (m4 - m3)) - 480;
-            totalSaldoReal += realDiff;
-
-            const esEl = document.getElementById(`m_es_${d.d}`);
-            if (esEl) esEl.innerText = m2tUnsigned(realDiff + 480);
-        } else if (tipo === 'falta') {
-            realDiff = -480;
-            totalSaldoReal += realDiff;
-        } else {
-            totalSaldoReal += parseOrigSaldo(d.saldo);
-        }
-
-        // Saldo extraído sempre entra pro total oficial
-        totalSaldoOficial += parseOrigSaldo(d.saldo);
-
-        // Renderizar Saldo na tabela principal
-        const saldoEl = document.getElementById(`m_saldo_${d.d}`);
-        if (saldoEl) {
-            saldoEl.innerHTML = renderSaldoCellContent(d, realDiff);
-        }
-
-        if (isOccurrenceDay(d)) {
-            const isDispensa = tipo === 'dispensa';
-            const isManual = d.ocorrenciaManual === true;
-            const bloqueio = d.o || [1, 1, 1, 1];
-
-            // Para dispensa detectada automaticamente: só mostrar se o campo
-            // editável foi preenchido. Ocorrência manual é sempre exibida,
-            // já que o usuário pediu explicitamente para incluí-la.
-            const hasEditedFields = (isDispensa && !isManual)
-                ? fields.some((f, fi) => bloqueio[fi] === 0 && isTimeValid(d[f]))
-                : true;
-
-            if (hasEditedFields) {
-                // Renderizar ocorrência (Feature 4: onblur em vez de onchange)
-                const mkOcorInput = (val, isOrig, f, fi) => {
-                    // Dispensa: campos não preenchidos ficam como placeholder
-                    if (isDispensa && !isTimeValid(val) && !isOrig) {
-                        return `<input type="time" value="" onfocus="saveState(${idx})" onblur="syncChange(${idx}, '${f}', this.value)">`;
-                    }
-                    return `<input type="time" value="${val}" ${isOrig ? 'class="readonly" readonly' : ''} onfocus="saveState(${idx})" onblur="syncChange(${idx}, '${f}', this.value)">`;
-                };
-
-                const trOc = document.createElement('tr');
-                trOc.innerHTML = `<td>${String(d.d).padStart(2, '0')}/${CONFIG.mesAno}</td>
-                    <td>${mkOcorInput(d.e1, bloqueio[0], 'e1', 0)}</td><td>${mkOcorInput(d.s1, bloqueio[1], 's1', 1)}</td>
-                    <td>${mkOcorInput(d.e2, bloqueio[2], 'e2', 2)}</td><td>${mkOcorInput(d.s2, bloqueio[3], 's2', 3)}</td>
-                    <td class="col-acao-manual"><button class="icon-btn" title="Remover esta ocorrência do documento SEI" onclick="removeOcorrencia(${idx})">✕</button></td>`;
-                ocorBody.appendChild(trOc);
-
-                // Renderizar justificativa
-                const faltantes = [];
-                const fields_names = ['a entrada', 'a saída do almoço', 'a entrada do almoço', 'a saída'];
-                fields.forEach((f, fi) => {
-                    if (bloqueio[fi] === 0) {
-                        // Dispensa: só listar se o campo foi preenchido pelo usuário
-                        if (!isDispensa || isTimeValid(d[f])) {
-                            faltantes.push(fields_names[fi]);
-                        }
-                    }
-                });
-
-                const trJu = document.createElement('tr');
-                if (faltantes.length > 0) {
-                    const mesAnoPrint = CONFIG.mesAno ? CONFIG.mesAno : '??/????';
-                    const frase = montarJustificativa(`${String(d.d).padStart(2, '0')}/${mesAnoPrint}`, faltantes);
-                    trJu.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" value="${frase}">
-                <button class="icon-btn" onclick="copyBtn('just_${d.d}')"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td>`;
-                } else {
-                    // Ocorrência sem horário gerado (ex.: incluída manualmente):
-                    // não há como inferir a frase, então o usuário digita.
-                    const justVal = (d.justManual || '').replace(/"/g, '&quot;');
-                    trJu.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" placeholder="Descreva o motivo da ocorrência..." value="${justVal}" onblur="syncJustManual(${idx}, this.value)">
-                <button class="icon-btn" onclick="copyBtn('just_${d.d}')"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button></td>`;
-                }
-                justBody.appendChild(trJu);
-            }
-        }
-    });
-
-    // Atualizar status bar
-    document.getElementById('totalFaltas').innerText = totalFaltas;
-    document.getElementById('totalAjustados').innerText = totalAjustados;
-    document.getElementById('totalCompletos').innerText = totalCompletos;
-
-    const saldoOfcEl = document.getElementById('saldoTotalOficial');
-    if (saldoOfcEl) saldoOfcEl.innerText = m2t(totalSaldoOficial);
-
-    const saldoEl = document.getElementById('saldoTotal');
-    if (saldoEl) {
-        saldoEl.innerText = m2t(totalSaldoReal);
-        saldoEl.className = 'status-value ' + (totalSaldoReal < 0 ? 'status-danger' : 'status-success');
+    const realEl = document.getElementById('saldoTotal');
+    if (realEl) {
+        realEl.innerText = m2t(totais.saldoReal);
+        realEl.className = 'status-value ' + (totais.saldoReal < 0 ? 'status-danger' : 'status-success');
     }
 };
 
+// --- Atualizar tudo ---
+// Calcula uma vez e distribui o resultado para as três áreas da tela.
+const updateAll = () => {
+    const totais = calcularTotais(daysData);
+    totais.porDia.forEach(atualizarLinhaPrincipal);
+    renderOcorrencias(totais.porDia);
+    renderStatusBar(totais);
+};
+
 // --- Sync Change (Two-Way Binding) — Feature 4: sem confirm(), com auto-fill ---
-window.syncChange = (idx, field, newVal) => {
+const syncChange = (idx, field, newVal) => {
     const d = daysData[idx];
     d[field] = newVal;
 
@@ -710,6 +629,43 @@ window.syncChange = (idx, field, newVal) => {
 
     // Auto-save após cada edição
     scheduleSave();
+};
+
+// controleDeCarga monta o seletor de jornada exigida no dia.
+//
+// A jornada de uma dispensa ou de um expediente reduzido vem do ato que a
+// concedeu e muda caso a caso: pode liberar o dia inteiro, meio período ou a
+// partir de determinado horário. Em vez de o sistema arbitrar um número, o
+// usuário informa o que o documento diz — com atalhos para os casos comuns e
+// um campo livre para o resto.
+const controleDeCarga = (d, idx, tipo) => {
+    const atual = d.carga || 0;
+    // cargaLivre registra a INTENÇÃO de digitar um valor próprio. Sem ela,
+    // escolher "Outra…" com uma jornada que por acaso coincide com um atalho
+    // não mostrava campo nenhum: o seletor voltava ao atalho e o usuário ficava
+    // sem entender por que o clique não fez nada.
+    const usarCampoLivre = d.cargaLivre || (atual > 0 && !PRESETS_CARGA.some((p) => p.valor === atual));
+    const origem = tipo === 'dispensa' ? 'ato de dispensa' : 'decreto';
+
+    const ajuda = `Jornada que o servidor ainda devia cumprir neste dia, conforme o ${origem}. `
+        + 'Em branco, o dia não gera saldo nem déficit e fica marcado para conferência.';
+
+    const opcoes = [
+        `<option value=""${atual === 0 && !usarCampoLivre ? ' selected' : ''}>A conferir</option>`,
+        ...PRESETS_CARGA.map((p) =>
+            `<option value="${p.valor}"${!usarCampoLivre && atual === p.valor ? ' selected' : ''}>${esc(p.rotulo)}</option>`),
+        `<option value="custom"${usarCampoLivre ? ' selected' : ''}>Outra…</option>`,
+    ].join('');
+
+    const livre = usarCampoLivre
+        ? `<input type="number" class="carga-input" min="1" max="1440" step="15"
+                value="${atual || ''}" placeholder="min"
+                title="Jornada exigida neste dia, em minutos." data-carga="${idx}">`
+        : '';
+
+    return `<span class="carga-controle" title="${esc(ajuda)}">
+        <select class="carga-select" data-carga-preset="${idx}">${opcoes}</select>${livre}
+    </span>`;
 };
 
 // --- Renderizar tabela principal ---
@@ -762,12 +718,11 @@ const renderTables = () => {
             // Feature 4: usar onblur ao invés de onchange para evitar disparo prematuro
             const mkMainInput = (v, isOrig, f) => {
                 const canDrag = v ? 'draggable="true"' : '';
-                const emptyClass = isOrig && !v ? 'class="readonly empty-time" readonly' : '';
                 if (!v && (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao')) return `<span class="empty-time">——:——</span>`;
                 if (!v && d.dayTypeOverride !== 'dispensa' && isWeekend(d) && !d.mot) return `<span class="empty-time">——:——</span>`;
                 if (!v && d.dayTypeOverride !== 'dispensa' && d.saldo === '-08:00' && !d.mot && !isWeekend(d)) return `<span class="empty-time">——:——</span>`;
-                if (!v) return `<input type="time" id="m_${f}_${d.d}" value="" onfocus="saveState(${i})" onblur="syncChange(${i}, '${f}', this.value)">`;
-                return `<input type="time" id="m_${f}_${d.d}" value="${v}" ${isOrig ? `class="readonly draggable-time"` : `${canDrag} class="draggable-time"`} ${canDrag} onfocus="saveState(${i})" onblur="syncChange(${i}, '${f}', this.value)">`;
+                if (!v) return `<input type="time" id="m_${f}_${d.d}" value="" data-dia="${i}" data-campo="${f}">`;
+                return `<input type="time" id="m_${f}_${d.d}" value="${v}" ${isOrig ? `class="readonly draggable-time"` : `${canDrag} class="draggable-time"`} ${canDrag} data-dia="${i}" data-campo="${f}">`;
             };
 
             const tdSaldo = `<td id="m_saldo_${d.d}" class="saldo-cell" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;" title="Clique nos valores para copiar">${renderSaldoCellContent(d, null)}</td>`;
@@ -778,39 +733,22 @@ const renderTables = () => {
             }
             // Sinalizado pelo backend: observação deslocada ou carga a conferir.
             if (d.revisar) {
-                const motivo = (d.revisar_motivo || 'Requer conferência manual').replace(/"/g, '&quot;');
-                diaDisplay += ` <span class="revisar-badge" title="${motivo}">⚠️</span>`;
+                const motivo = d.revisar_motivo || 'Requer conferência manual';
+                diaDisplay += ` <span class="revisar-badge" title="${esc(motivo)}">⚠️</span>`;
             }
 
-            // Seletor de tipo de dia — disponível para todos os dias
-            // Auto-detecção inteligente: FDS pelo calendário, dispensa/feriado pelo motivo
-            const autoDetectDispensa = d.mot && d.mot.toUpperCase().includes('DISPENSA');
-            const autoDetectFeriado = d.mot && (d.mot.toUpperCase().includes('RECESSO') || d.mot.toUpperCase().includes('FERIADO') || d.mot.toUpperCase().includes('FACULTATIVO'));
-            const autoDetectFDS = isWeekend(d);
-            const autoDetectReduzido = isExpedienteReduzido(d);
+            // Seletor de tipo de dia. A detecção automática é só LIDA aqui —
+            // gravá-la em d.dayTypeOverride durante o render transformava um
+            // palpite do sistema em escolha do usuário, e a tornava permanente.
+            const selected = tipoSelecionado(d);
 
-            let selected = d.dayTypeOverride || 'util';
-            // Auto-setar override se detectado e ainda não definido manualmente
-            if (!d.dayTypeOverride) {
-                // Expediente reduzido vence o FDS: um decreto pode reduzir jornada
-                // em dia útil, e é o caso que não pode gerar horário automático.
-                if (autoDetectReduzido) { selected = 'reduzido'; d.dayTypeOverride = 'reduzido'; }
-                else if (autoDetectFDS) { selected = 'fds'; d.dayTypeOverride = 'fds'; }
-                else if (autoDetectDispensa) { selected = 'dispensa'; d.dayTypeOverride = 'dispensa'; }
-                else if (autoDetectFeriado) { selected = 'feriado'; d.dayTypeOverride = 'feriado'; }
-            }
+            const selectClass = TIPO_POR_SELECAO[selected] ? ` is-${selected}` : '';
+            const motivoText = d.mot ? ` title="${esc(d.mot)}"` : '';
 
-            const selectClass = ['feriado','folga','convocacao','dispensa','fds','reduzido'].includes(selected) ? ` is-${selected}` : '';
-            const motivoText = d.mot ? ` title="${d.mot}"` : '';
-
-            // Em expediente reduzido a jornada exigida vem do decreto, então
-            // precisa ser informada manualmente para o saldo fazer sentido.
-            const cargaHtml = selected === 'reduzido'
-                ? `<input type="number" class="carga-input" min="0" max="720" step="30"
-                        value="${d.carga || ''}" placeholder="min"
-                        title="Carga horária exigida neste dia, em minutos (conforme o decreto). Em branco = dia não gera saldo."
-                        onblur="changeCarga(${i}, this.value)">`
-                : '';
+            // Dispensa e expediente reduzido têm a jornada definida pelo ato que
+            // os concedeu — decreto, portaria — e ela varia caso a caso. Em
+            // branco o dia fica neutro em vez de o sistema arbitrar uma jornada.
+            const cargaHtml = CARGA_POR_ATO.includes(selected) ? controleDeCarga(d, i, selected) : '';
 
             // Toggle manual da seção "Ocorrência" do documento Gerar SEI.
             // Reflete o estado efetivo (automático ou sobreposto) e alterna
@@ -818,36 +756,35 @@ const renderTables = () => {
             const occChecked = isOccurrenceDay(d);
             const occOverridden = d.ocorrenciaManual === true || d.ocorrenciaManual === false;
             const occHtml = `<label class="ocor-manual-toggle${occOverridden ? ' is-overridden' : ''}" title="Incluir/excluir manualmente esta data na seção Ocorrência do documento Gerar SEI">
-                <input type="checkbox" ${occChecked ? 'checked' : ''} onchange="toggleOcorrenciaManual(${i}, this.checked)">
+                <input type="checkbox" ${occChecked ? 'checked' : ''} data-ocorrencia-manual="${i}">
                 Ocorrência
             </label>`;
 
+            const opcoesTipo = TIPOS_DE_DIA.map((t) =>
+                `<option value="${t.valor}"${selected === t.valor ? ' selected' : ''} title="${esc(t.ajuda)}">${esc(t.rotulo)}</option>`
+            ).join('');
+            const ajudaTipo = TIPOS_DE_DIA.find((t) => t.valor === selected)?.ajuda || '';
+
             let motivoHtml = `<td class="col-motivo"${motivoText}>
-                <select class="day-type-select${selectClass}" onchange="changeDayType(${i}, this.value)">
-                    <option value="util"${selected === 'util' ? ' selected' : ''}>Útil</option>
-                    <option value="fds"${selected === 'fds' ? ' selected' : ''}>FDS</option>
-                    <option value="dispensa"${selected === 'dispensa' ? ' selected' : ''}>Dispensa</option>
-                    <option value="feriado"${selected === 'feriado' ? ' selected' : ''}>Feriado</option>
-                    <option value="folga"${selected === 'folga' ? ' selected' : ''}>Folga</option>
-                    <option value="convocacao"${selected === 'convocacao' ? ' selected' : ''}>Convocação</option>
-                    <option value="reduzido"${selected === 'reduzido' ? ' selected' : ''}>Reduzido</option>
+                <select class="day-type-select${selectClass}" data-tipo-dia="${i}" title="${esc(ajudaTipo)}">
+                    ${opcoesTipo}
                 </select>
                 ${cargaHtml}
                 ${occHtml}
-                ${d.mot ? `<span class="mot-text" title="${d.mot}">${d.mot.substring(0, 60)}${d.mot.length > 60 ? '...' : ''}</span>` : ''}
+                ${d.mot ? `<span class="mot-text" title="${esc(d.mot)}">${esc(d.mot.substring(0, 60))}${d.mot.length > 60 ? '...' : ''}</span>` : ''}
             </td>`;
 
             tr.innerHTML = `
                 <td class="col-dia">${diaDisplay}</td>
                 <td>${mkMainInput(d.e1, d.o ? d.o[0] : 1, 'e1')}</td><td>${mkMainInput(d.s1, d.o ? d.o[1] : 1, 's1')}</td>
                 <td>${mkMainInput(d.e2, d.o ? d.o[2] : 1, 'e2')}</td><td>${mkMainInput(d.s2, d.o ? d.o[3] : 1, 's2')}</td>
-                <td class="col-es" id="m_es_${d.d}" style="font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer" onclick="copyCell('${d.es}', this)" title="Clique p/ copiar">${d.es}</td>
+                <td class="col-es" id="m_es_${d.d}" style="font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer" ${copiavel(d.es)} title="Clique p/ copiar">${esc(d.es)}</td>
                 ${tdSaldo}
-                <td style="font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer" onclick="copyCell('${d.ocor}', this)" title="Clique p/ copiar">${d.ocor}</td>
+                <td style="font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer" ${copiavel(d.ocor)} title="Clique p/ copiar">${esc(d.ocor)}</td>
                 ${motivoHtml}
                 <td class="col-week">${d.w}</td>
                 <td class="col-acao">
-                    <button class="icon-btn" onclick="copyRow(${i})" title="Copiar linha">
+                    <button class="icon-btn" data-copiar-linha="${i}" title="Copiar linha">
                         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                     </button>
                 </td>
@@ -967,6 +904,24 @@ if (savedTheme) {
 } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
     document.body.setAttribute('data-theme', 'dark');
 }
+
+// --- Versão: vem do backend, que é o único lugar onde o número mora ---
+const loadVersion = async () => {
+    const badge = document.getElementById('versionBadge');
+    try {
+        const res = await fetch(`${CONFIG.apiBase}/api/health`);
+        if (!res.ok) return;
+        const { version } = await res.json();
+        if (!version) return;
+        CONFIG.version = version;
+        if (badge) badge.textContent = `v${version}`;
+    } catch (e) {
+        // Backend fora do ar: o resto da página continua utilizável, então só
+        // deixamos o selo vazio em vez de mostrar um número possivelmente errado.
+        console.error('Erro ao obter a versão:', e);
+    }
+};
+loadVersion();
 
 // --- Inicialização ---
 const hdrInput = document.getElementById('headerMonthInput');
@@ -1230,30 +1185,10 @@ function loadFromAPI(data) {
             `<strong>${info.nome}</strong><br>${info.matricula || ''} • ${info.cpf || ''}`;
     }
 
-    // Substituir dados
+    // Substituir dados. Upload novo não traz escolhas manuais: elas só existem
+    // em mês já salvo, e deWire devolve os padrões corretos.
     daysData.length = 0;
-    ts.dias.forEach(d => {
-        daysData.push({
-            d: d.d,
-            w: d.w || '',
-            e1: d.e1 || '',
-            s1: d.s1 || '',
-            e2: d.e2 || '',
-            s2: d.s2 || '',
-            es: d.es || '',
-            saldo: d.saldo || '',
-            ocor: d.ocor || '',
-            mot: d.mot || '',
-            o: d.o || undefined,
-            tipo: d.tipo || undefined,
-            carga: d.carga || undefined,
-            revisar: d.revisar || false,
-            revisar_motivo: d.revisar_motivo || '',
-            dayTypeOverride: null, // Feature 2
-            ocorrenciaManual: null,
-            justManual: '',
-        });
-    });
+    ts.dias.forEach(d => daysData.push(deWire(d)));
 
     // Mostrar elementos
     emptyState.style.display = 'none';
@@ -1279,8 +1214,6 @@ const docViewerBody = document.getElementById('docViewerBody');
 const docViewerStage = document.getElementById('docViewerStage');
 const docViewerResize = document.getElementById('docViewerResize');
 const docViewerPageNav = document.getElementById('docViewerPageNav');
-
-const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
 let docViewerOpen = false;
 let docViewerLoadedFile = null;
@@ -1642,7 +1575,7 @@ const saveSettings = async () => {
         } else {
             showToast(data.error || 'Erro ao salvar', 'error');
         }
-    } catch (e) {
+    } catch {
         showToast('Erro de rede ao salvar', 'error');
     } finally {
         saveSettingsBtn.textContent = 'Salvar';
@@ -1663,16 +1596,11 @@ loadModelsList();
 // --- Frase padrão da justificativa ---
 const justTemplateInput = document.getElementById('justTemplate');
 if (justTemplateInput) {
-    const salvo = localStorage.getItem(JUST_TEMPLATE_KEY);
-    if (salvo) justTemplateInput.value = salvo;
+    const salvo = getJustTemplate();
+    if (salvo !== JUST_TEMPLATE_PADRAO) justTemplateInput.value = salvo;
 
     justTemplateInput.addEventListener('input', () => {
-        const v = justTemplateInput.value.trim();
-        if (v) {
-            localStorage.setItem(JUST_TEMPLATE_KEY, v);
-        } else {
-            localStorage.removeItem(JUST_TEMPLATE_KEY); // volta ao padrão
-        }
+        salvarJustTemplate(justTemplateInput.value.trim());
         updateAll(); // regenera todas as frases já exibidas
     });
 }
@@ -1683,9 +1611,6 @@ if (justTemplateInput) {
 
 let savedMonths = [];
 let saveTimeout = null;
-
-const MESES_NOMES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
 const mesAnoToLabel = (mesAno) => {
     if (!mesAno) return '';
@@ -1727,28 +1652,15 @@ const scheduleSave = () => {
 const saveCurrentMonth = async () => {
     if (!CONFIG.mesAno || daysData.length === 0) return;
 
-    const monthDays = daysData.map(d => ({
-        d: d.d, w: d.w,
-        e1: d.e1, s1: d.s1, e2: d.e2, s2: d.s2,
-        es: d.es, saldo: d.saldo, saldo_real: d.saldo_real || '',
-        ocor: d.ocor, mot: d.mot,
-        o: d.o || undefined, tipo: d.tipo || undefined,
-        carga: d.carga || undefined,
-        // revisar/revisar_motivo não são salvos: o backend os recalcula na
-        // leitura, senão um aviso já resolvido ficaria colado no mês para sempre.
-        day_type_override: d.dayTypeOverride || undefined,
-        // Não usar `||`: false é um valor válido (exclusão manual) e não
-        // pode virar undefined, senão a exclusão se perde ao salvar.
-        ocorrencia_manual: (d.ocorrenciaManual === true || d.ocorrenciaManual === false) ? d.ocorrenciaManual : undefined,
-        justificativa_manual: d.justManual || undefined,
-    }));
+    const monthDays = daysData.map(paraWire);
 
-    const serverInfoEl = document.getElementById('serverInfo');
-    const servidorNome = serverInfoEl ? serverInfoEl.querySelector('strong')?.textContent || '' : '';
-
+    // Gravar o servidor INTEIRO. Antes o payload mandava só
+    // `{ nome: <texto raspado do DOM> }`, e cada auto-save apagava do arquivo o
+    // CPF, a matrícula, o horário contratual, a unidade e o órgão — os campos
+    // que o documento SEI preenche. Bastava editar um horário para perdê-los.
     const payload = {
         mes_ano: CONFIG.mesAno,
-        servidor: { nome: servidorNome },
+        servidor: activeServidor,
         dias: monthDays,
     };
 
@@ -1828,7 +1740,6 @@ const loadMonthData = async (mesAno) => {
 
         // Converter para formato do loadFromAPI
         CONFIG.mesAno = data.mes_ano;
-        const [mm, yyyy] = data.mes_ano.split('/');
         CONFIG.mesNome = mesAnoToLabel(data.mes_ano);
 
         // Atualizar info do servidor
@@ -1840,23 +1751,7 @@ const loadMonthData = async (mesAno) => {
 
         // Substituir dados
         daysData.length = 0;
-        data.dias.forEach(d => {
-            daysData.push({
-                d: d.d, w: d.w || '',
-                e1: d.e1 || '', s1: d.s1 || '',
-                e2: d.e2 || '', s2: d.s2 || '',
-                es: d.es || '', saldo: d.saldo || '',
-                saldo_real: d.saldo_real || '',
-                ocor: d.ocor || '', mot: d.mot || '',
-                o: d.o || undefined, tipo: d.tipo || undefined,
-                carga: d.carga || undefined,
-                revisar: d.revisar || false,
-                revisar_motivo: d.revisar_motivo || '',
-                dayTypeOverride: d.day_type_override || null,
-                ocorrenciaManual: typeof d.ocorrencia_manual === 'boolean' ? d.ocorrencia_manual : null,
-                justManual: d.justificativa_manual || '',
-            });
-        });
+        data.dias.forEach(d => daysData.push(deWire(d)));
 
         // Mostrar elementos
         emptyState.style.display = 'none';
@@ -2294,7 +2189,6 @@ if (!localStorage.getItem('tourCompleted')) {
 }
 
 // Re-launch post-upload tour when data loads for first time
-const origUpdateAll = window._tourUpdateAll || null;
 let postTourShown = false;
 const checkPostUploadTour = () => {
     if (!postTourShown && daysData.length > 0 && !localStorage.getItem('postTourShown')) {
@@ -2303,9 +2197,6 @@ const checkPostUploadTour = () => {
         setTimeout(() => Tour.start(), 500);
     }
 };
-// Hook into updateAll to detect data load
-const _origRenderTables = renderTables;
-// We'll check after renders via a simpler mechanism
 setInterval(() => {
     if (daysData.length > 0 && !postTourShown && !localStorage.getItem('postTourShown')) {
         checkPostUploadTour();
@@ -2503,7 +2394,7 @@ window.openSeiModal = () => {
     document.getElementById('seiChefiaNome').value = localStorage.getItem('seiChefiaNome') || '';
     document.getElementById('seiChefiaLotacao').value = localStorage.getItem('seiChefiaLotacao') || '';
 
-    updateSeiPreview();
+    window.updateSeiPreview();
 
     modal.classList.add('show');
 };
@@ -2540,14 +2431,14 @@ window.copySeiDocument = async () => {
         }, 2000);
         
         showToast('Formulário SEI copiado como Rich Text! Agora é só colar direto no SEI.', 'success');
-        closeSeiModal();
+        window.closeSeiModal();
     } catch (err) {
         console.error('Erro ao copiar HTML: ', err);
         try {
             await navigator.clipboard.writeText(textContent);
             showToast('Copiado como texto simples (limitação do navegador)', 'warning');
-            closeSeiModal();
-        } catch (err2) {
+            window.closeSeiModal();
+        } catch {
             showToast('Erro ao copiar dados para a área de transferência', 'error');
         }
     }

@@ -1225,7 +1225,31 @@ input.just-input:focus {
     background: rgba(38, 166, 154, 0.08);
 }
 
-/* Carga horária do dia (minutos), usada no expediente reduzido */
+/* Jornada exigida no dia, usada em dispensa e expediente reduzido.
+   A jornada vem do ato que concedeu o dia, então é informada pelo usuário:
+   atalhos para os casos comuns e campo livre para o resto. */
+.carga-controle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+}
+
+.carga-select {
+    font-size: 10px;
+    padding: 2px 4px;
+    border: 1px solid #26a69a;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.carga-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 .carga-input {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
