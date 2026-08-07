@@ -4,53 +4,38 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
+	"github.com/fernangcortes/ponto-real-go/pkg/apperr"
 	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
 	"github.com/fernangcortes/ponto-real-go/pkg/repository"
 	"github.com/fernangcortes/ponto-real-go/pkg/service"
+	"github.com/fernangcortes/ponto-real-go/pkg/version"
 )
 
+// uploadMaxBytes é o teto do arquivo enviado (10 MB).
+const uploadMaxBytes = 10 * 1024 * 1024
+
 // Handler contém os handlers HTTP da API.
+//
+// A responsabilidade aqui é só de transporte: ler a requisição, chamar o
+// serviço, traduzir o resultado em status e JSON. Escolha de modelo, validação
+// de tipo de arquivo e checagem de chave são regra de aplicação e vivem em
+// pkg/service.
 type Handler struct {
-	service      *service.TimesheetService
-	settingsRepo repository.SettingsRepository
-	settings     models.AppSettings
+	service  *service.TimesheetService
+	settings *settingsStore
 }
 
 // NewHandler cria um novo Handler com as dependências injetadas.
-func NewHandler(
-	service *service.TimesheetService,
-	settingsRepo repository.SettingsRepository,
-) *Handler {
-	h := &Handler{
-		service:      service,
-		settingsRepo: settingsRepo,
+func NewHandler(service *service.TimesheetService, settingsRepo repository.SettingsRepository) *Handler {
+	return &Handler{
+		service:  service,
+		settings: newSettingsStore(settingsRepo),
 	}
-
-	// Carregar configurações salvas
-	s, err := settingsRepo.Load()
-	if err == nil {
-		h.settings = s
-	}
-
-	// Normalizar provider
-	if h.settings.Provider == "" {
-		h.settings.Provider = "gemini"
-	}
-
-	// Sobrescrever/preencher com Env Vars se estiverem vazias
-	if h.settings.GeminiAPIKey == "" {
-		h.settings.GeminiAPIKey = os.Getenv("GEMINI_API_KEY")
-	}
-	if h.settings.OpenRouterAPIKey == "" {
-		h.settings.OpenRouterAPIKey = os.Getenv("OPENROUTER_API_KEY")
-	}
-
-	return h
 }
 
 // RegisterRoutes registra todas as rotas da API no mux.
@@ -69,41 +54,48 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/month/{mesAno}", h.SaveMonth)
 }
 
+// decodeBody lê o corpo JSON da requisição.
+func decodeBody(r *http.Request, destino any) error {
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(destino); err != nil {
+		return fmt.Errorf("%w: JSON malformado: %v", apperr.ErrRequisicaoInvalida, err)
+	}
+	return nil
+}
+
 // Health retorna status do servidor.
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	hasKey := false
-	if h.settings.Provider == "openrouter" {
-		hasKey = h.settings.OpenRouterAPIKey != ""
-	} else {
-		hasKey = h.settings.GeminiAPIKey != ""
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	_, apiKey := h.settings.ChaveDoProvedorAtivo()
+	writeJSON(w, http.StatusOK, map[string]any{
 		"status":       "ok",
-		"version":      "1.0.0",
+		"version":      version.Atual,
 		"name":         "Ponto Real Go",
-		"gemini_ready": hasKey,
+		"gemini_ready": apiKey != "",
 	})
 }
 
 // GetSettings retorna as configurações salvas (mascarando as chaves).
 func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
-	maskKey := func(key string) string {
-		if key == "" {
-			return ""
-		}
-		if len(key) > 8 {
-			return key[:4] + "..." + key[len(key)-4:]
-		}
-		return "****"
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"provider":              h.settings.Provider,
-		"has_gemini_key":        h.settings.GeminiAPIKey != "",
-		"masked_gemini_key":     maskKey(h.settings.GeminiAPIKey),
-		"has_openrouter_key":    h.settings.OpenRouterAPIKey != "",
-		"masked_openrouter_key": maskKey(h.settings.OpenRouterAPIKey),
+	atual := h.settings.Get()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"provider":              atual.Provider,
+		"has_gemini_key":        atual.GeminiAPIKey != "",
+		"masked_gemini_key":     mascarar(atual.GeminiAPIKey),
+		"has_openrouter_key":    atual.OpenRouterAPIKey != "",
+		"masked_openrouter_key": mascarar(atual.OpenRouterAPIKey),
 	})
+}
+
+// mascarar mostra só as pontas da chave, o suficiente para o usuário reconhecer
+// qual configurou sem que a chave inteira trafegue de volta.
+func mascarar(chave string) string {
+	if chave == "" {
+		return ""
+	}
+	if len(chave) > 8 {
+		return chave[:4] + "..." + chave[len(chave)-4:]
+	}
+	return "****"
 }
 
 // SaveSettings salva a configuração usando o repositório de configurações.
@@ -113,38 +105,17 @@ func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 		GeminiAPIKey     string `json:"gemini_api_key"`
 		OpenRouterAPIKey string `json:"open_router_api_key"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido"})
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider = "gemini"
+	if err := h.settings.Atualizar(req.Provider, req.GeminiAPIKey, req.OpenRouterAPIKey); err != nil {
+		writeError(w, fmt.Errorf("erro ao salvar configurações: %w", err))
+		return
 	}
 
-	// Atualizar em memória mantendo chaves antigas se vierem vazias (placeholders)
-	geminiKey := strings.TrimSpace(req.GeminiAPIKey)
-	if geminiKey != "" {
-		h.settings.GeminiAPIKey = geminiKey
-	}
-	orKey := strings.TrimSpace(req.OpenRouterAPIKey)
-	if orKey != "" {
-		h.settings.OpenRouterAPIKey = orKey
-	}
-	h.settings.Provider = provider
-
-	// Salvar no arquivo (se não estiver no Vercel)
-	if os.Getenv("VERCEL") != "1" {
-		if err := h.settingsRepo.Save(h.settings); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar settings.json: " + err.Error()})
-			return
-		}
-		fmt.Println("[API] Configurações salvas")
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": "Configurações salvas com sucesso!",
 	})
@@ -152,119 +123,52 @@ func (h *Handler) SaveSettings(w http.ResponseWriter, r *http.Request) {
 
 // GetModels retorna os modelos disponíveis para extração.
 func (h *Handler) GetModels(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"provider":          h.settings.Provider,
+	atual := h.settings.Get()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"provider":          atual.Provider,
 		"gemini_models":     extraction.GeminiModels(),
 		"openrouter_models": extraction.OpenRouterModels(),
-		"has_gemini_key":    h.settings.GeminiAPIKey != "",
-		"has_or_key":        h.settings.OpenRouterAPIKey != "",
+		"has_gemini_key":    atual.GeminiAPIKey != "",
+		"has_or_key":        atual.OpenRouterAPIKey != "",
 	})
 }
 
-// Upload recebe um PDF/PNG via multipart, delega para o serviço de extração e retorna o ProcessResponse.
+// Upload recebe um PDF/PNG via multipart e devolve o ProcessResponse.
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	// Validar chaves com base no provedor
-	var apiKey string
-	if h.settings.Provider == "openrouter" {
-		apiKey = h.settings.OpenRouterAPIKey
-		if apiKey == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "Chave da API OpenRouter não configurada. Clique no ⚙️ no topo para configurá-la.",
-			})
-			return
-		}
-	} else {
-		apiKey = h.settings.GeminiAPIKey
-		if apiKey == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": "Chave da API Gemini não configurada. Clique no ⚙️ no topo para configurá-la.",
-			})
-			return
-		}
-	}
+	r.Body = http.MaxBytesReader(w, r.Body, uploadMaxBytes)
 
-	// Limitar upload a 10MB
-	r.Body = http.MaxBytesReader(w, r.Body, 10*1024*1024)
-
-	// Parse multipart
-	if err := r.ParseMultipartForm(10 * 1024 * 1024); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Arquivo muito grande ou formato inválido. Máximo: 10MB.",
-		})
+	if err := r.ParseMultipartForm(uploadMaxBytes); err != nil {
+		writeError(w, fmt.Errorf("%w: arquivo muito grande ou formato inválido (máximo 10MB)",
+			apperr.ErrRequisicaoInvalida))
 		return
 	}
 
-	// Lê o arquivo
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Campo 'file' não encontrado no upload.",
-		})
+		writeError(w, fmt.Errorf("%w: campo 'file' não encontrado no upload", apperr.ErrRequisicaoInvalida))
 		return
 	}
 	defer file.Close()
 
-	fileBytes, err := io.ReadAll(file)
+	conteudo, err := io.ReadAll(file)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "Erro ao ler arquivo.",
-		})
+		writeError(w, fmt.Errorf("erro ao ler o arquivo enviado: %w", err))
 		return
 	}
 
-	// Detectar MIME type
-	mimeType := header.Header.Get("Content-Type")
-	if mimeType == "" || mimeType == "application/octet-stream" {
-		mimeType = detectMimeType(header.Filename, fileBytes)
-	}
+	provider, apiKey := h.settings.ChaveDoProvedorAtivo()
 
-	// Validar MIME type
-	allowedTypes := map[string]bool{
-		"image/png": true, "image/jpeg": true, "image/webp": true,
-		"application/pdf": true,
-	}
-	if !allowedTypes[mimeType] {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("Tipo de arquivo não suportado: %s. Use PNG, JPEG, WebP ou PDF.", mimeType),
-		})
-		return
-	}
-
-	// Modelo selecionado pelo usuário
-	model := r.FormValue("model")
-	if model == "" {
-		if h.settings.Provider == "openrouter" {
-			model = "google/gemini-2.5-flash"
-		} else {
-			model = "gemini-2.5-flash"
-		}
-	}
-
-	// Validar modelo com base no provedor
-	if h.settings.Provider == "openrouter" {
-		if !isValidModel(model, extraction.OpenRouterModels()) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("Modelo OpenRouter inválido: %s", model),
-			})
-			return
-		}
-	} else {
-		if !isValidModel(model, extraction.GeminiModels()) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("Modelo Gemini inválido: %s", model),
-			})
-			return
-		}
-	}
-
-	fmt.Printf("[API] Upload: %s (%s, %d bytes) provedor: %s, modelo: %s\n", header.Filename, mimeType, len(fileBytes), h.settings.Provider, model)
-
-	// Chamar o caso de uso de processamento de folha de ponto
-	resp, err := h.service.ProcessUpload(fileBytes, mimeType, header.Filename, model, h.settings.Provider, apiKey)
+	// O contexto da requisição cancela a chamada ao provedor se o cliente sumir.
+	resp, err := h.service.ProcessUpload(r.Context(), service.UploadRequest{
+		Arquivo:  conteudo,
+		MimeType: header.Header.Get("Content-Type"),
+		Filename: header.Filename,
+		Modelo:   r.FormValue("model"),
+		Provider: provider,
+		APIKey:   apiKey,
+	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
-		})
+		writeError(w, err)
 		return
 	}
 
@@ -276,20 +180,17 @@ func (h *Handler) GetRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.service.GetEngineConfig())
 }
 
-// Process recebe dias de uma folha de ponto, delega classificação/resumo para o serviço e retorna ProcessResponse.
+// Process recebe dias de uma folha, classifica e devolve o resumo.
 func (h *Handler) Process(w http.ResponseWriter, r *http.Request) {
 	var req models.ProcessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "JSON inválido: " + err.Error(),
-		})
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
 	resp, err := h.service.Process(req)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeError(w, err)
 		return
 	}
 
@@ -304,45 +205,49 @@ type ValidateRequest struct {
 // Validate verifica se os horários de um dia são válidos e retorna cálculos.
 func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	var req ValidateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "JSON inválido: " + err.Error(),
-		})
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
-	resp := h.service.Validate(req.Day)
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, h.service.Validate(req.Day))
 }
 
 // ListMonths retorna todos os meses salvos.
 func (h *Handler) ListMonths(w http.ResponseWriter, r *http.Request) {
 	months, err := h.service.ListMonths()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeError(w, fmt.Errorf("erro ao listar meses: %w", err))
 		return
 	}
+	// Nunca devolver null: o front-end itera direto sobre a resposta.
 	if months == nil {
 		months = []models.MonthSummary{}
 	}
 	writeJSON(w, http.StatusOK, months)
 }
 
+// mesAnoDaURL lê o mês do caminho, onde a barra vira underscore por não poder
+// aparecer dentro de um segmento de path.
+func mesAnoDaURL(r *http.Request) (string, error) {
+	mesAno := strings.ReplaceAll(r.PathValue("mesAno"), "_", "/")
+	if mesAno == "" {
+		return "", fmt.Errorf("%w: mês/ano obrigatório no caminho", apperr.ErrRequisicaoInvalida)
+	}
+	return mesAno, nil
+}
+
 // LoadMonth carrega um mês específico.
 func (h *Handler) LoadMonth(w http.ResponseWriter, r *http.Request) {
-	mesAno := r.PathValue("mesAno")
-	if mesAno == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "mes_ano obrigatório"})
+	mesAno, err := mesAnoDaURL(r)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 
-	// Converter "02_2026" para "02/2026"
-	mesAno = strings.ReplaceAll(mesAno, "_", "/")
-
 	data, err := h.service.LoadMonth(mesAno)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Mês não encontrado: " + mesAno})
+		writeError(w, err)
 		return
 	}
 
@@ -351,75 +256,29 @@ func (h *Handler) LoadMonth(w http.ResponseWriter, r *http.Request) {
 
 // SaveMonth salva/atualiza o estado de um mês.
 func (h *Handler) SaveMonth(w http.ResponseWriter, r *http.Request) {
-	mesAno := r.PathValue("mesAno")
-	if mesAno == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "mes_ano obrigatório"})
+	mesAno, err := mesAnoDaURL(r)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
-
-	// Converter "02_2026" para "02/2026"
-	mesAno = strings.ReplaceAll(mesAno, "_", "/")
 
 	var data models.MonthData
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "JSON inválido: " + err.Error()})
+	if err := decodeBody(r, &data); err != nil {
+		writeError(w, err)
 		return
 	}
-	defer r.Body.Close()
 
+	// Quem manda é o caminho da URL, não o corpo.
 	data.MesAno = mesAno
 
 	if err := h.service.SaveMonth(data); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Erro ao salvar: " + err.Error()})
+		writeError(w, fmt.Errorf("erro ao salvar o mês %s: %w", mesAno, err))
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	slog.Info("mês salvo", "mes_ano", mesAno, "dias", len(data.Dias))
+	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
 		"message": fmt.Sprintf("Mês %s salvo com sucesso", mesAno),
 	})
-}
-
-// isValidModel verifica se o modelo informado está entre as opções disponíveis.
-func isValidModel(model string, options []extraction.ModelOption) bool {
-	for _, opt := range options {
-		if opt.ID == model {
-			return true
-		}
-	}
-	return false
-}
-
-// writeJSON escreve uma resposta JSON.
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
-// detectMimeType detecta o tipo MIME do arquivo pelo nome ou magic bytes.
-func detectMimeType(filename string, data []byte) string {
-	lower := strings.ToLower(filename)
-	switch {
-	case strings.HasSuffix(lower, ".png"):
-		return "image/png"
-	case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"):
-		return "image/jpeg"
-	case strings.HasSuffix(lower, ".webp"):
-		return "image/webp"
-	case strings.HasSuffix(lower, ".pdf"):
-		return "application/pdf"
-	}
-	if len(data) >= 4 {
-		if data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 {
-			return "image/png"
-		}
-		if data[0] == 0xFF && data[1] == 0xD8 {
-			return "image/jpeg"
-		}
-		if data[0] == 0x25 && data[1] == 0x50 && data[2] == 0x44 && data[3] == 0x46 {
-			return "application/pdf"
-		}
-	}
-	return "application/octet-stream"
 }

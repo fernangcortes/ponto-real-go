@@ -1,19 +1,65 @@
 package extraction
 
 import (
+	"context"
+
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
 )
+
+// Provedores de extração suportados.
+const (
+	ProviderGemini     = "gemini"
+	ProviderOpenRouter = "openrouter"
+)
+
+// ModelosDoProvedor devolve o catálogo do provedor. Provedor desconhecido
+// devolve nil, e nenhum modelo é considerado válido.
+func ModelosDoProvedor(provider string) []ModelOption {
+	switch provider {
+	case ProviderOpenRouter:
+		return OpenRouterModels()
+	case ProviderGemini:
+		return GeminiModels()
+	}
+	return nil
+}
+
+// ModeloPadrao é o modelo usado quando o front-end não escolhe nenhum.
+// É sempre o primeiro do catálogo, que por convenção é o recomendado.
+func ModeloPadrao(provider string) string {
+	modelos := ModelosDoProvedor(provider)
+	if len(modelos) == 0 {
+		return ""
+	}
+	return modelos[0].ID
+}
+
+// ModeloValido informa se o modelo pertence ao catálogo do provedor.
+func ModeloValido(provider, model string) bool {
+	for _, m := range ModelosDoProvedor(provider) {
+		if m.ID == model {
+			return true
+		}
+	}
+	return false
+}
+
+// NomeAmigavel devolve o nome do provedor como aparece para o usuário.
+func NomeAmigavel(provider string) string {
+	if provider == ProviderOpenRouter {
+		return "OpenRouter"
+	}
+	return "Gemini"
+}
 
 // Extractor é a interface para extração de dados de folhas de ponto.
 // Permite trocar a implementação (Gemini Vision, Document AI, etc.) sem alterar o resto do código.
 type Extractor interface {
 	// Extract recebe os bytes do arquivo e seu MIME type, retorna um Timesheet estruturado.
-	Extract(fileBytes []byte, mimeType string) (*models.Timesheet, error)
-}
-
-// AvailableModels retorna a lista de modelos padrão (backward compatibility).
-func AvailableModels() []ModelOption {
-	return GeminiModels()
+	//
+	// O ctx cancela a chamada ao provedor: sem ele, fechar a aba deixava o
+	// servidor esperando até 120s por tentativa, três vezes.
+	Extract(ctx context.Context, fileBytes []byte, mimeType string) (*models.Timesheet, error)
 }
 
 // GeminiModels retorna os modelos da API direta do Google Gemini.

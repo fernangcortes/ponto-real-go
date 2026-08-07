@@ -1,34 +1,23 @@
 package handler
 
 import (
-	"fmt"
+	"log/slog"
 	"net/http"
 
-	"github.com/fernangcortes/ponto-real-go/pkg/api"
-	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
-	"github.com/fernangcortes/ponto-real-go/pkg/repository"
-	"github.com/fernangcortes/ponto-real-go/pkg/rules"
-	"github.com/fernangcortes/ponto-real-go/pkg/service"
+	"github.com/fernangcortes/ponto-real-go/pkg/app"
 )
 
 var finalHandler http.Handler
 
 func init() {
-	// Carregar regras com padrões
-	engine := rules.NewEngineWithDefaults()
+	app.ConfigurarLog(false)
 
-	// Inicializar dependências
-	timesheetRepo := repository.NewJSONTimesheetRepository("data")
-	settingsRepo := repository.NewJSONSettingsRepository("settings.json")
-	extractorFactory := extraction.NewRegistryExtractorFactory()
+	// Mesma composição do servidor local — inclusive as regras embutidas no
+	// binário, que antes eram substituídas aqui por um conjunto hardcoded
+	// diferente.
+	finalHandler = app.BuildAPI(app.ConfigFromEnv()).Handler
 
-	timesheetService := service.NewTimesheetService(engine, timesheetRepo, extractorFactory)
-	handler := api.NewHandler(timesheetService, settingsRepo)
-
-	// Configurar rotas e middlewares
-	finalHandler = api.BuildHandler(handler)
-
-	fmt.Println("[Vercel] Serverless backend inicializado com sucesso!")
+	slog.Info("backend serverless inicializado")
 }
 
 // Handler é o entrypoint exigido pelo Vercel em Go.

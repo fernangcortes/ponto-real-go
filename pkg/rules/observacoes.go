@@ -6,6 +6,15 @@ import "strings"
 // cuja carga exigida ainda não foi informada.
 const MsgRevisarCargaReduzida = "Expediente reduzido: confira a carga horária do dia definida pelo decreto."
 
+// MsgRevisarCargaDispensa é o aviso de dia de dispensa cuja jornada exigida
+// ainda não foi informada.
+//
+// Cada dispensa tem a sua: o ato pode liberar o dia inteiro, meio período ou a
+// partir de determinado horário. Sem essa informação não há contra o que apurar,
+// então o dia entra neutro e pede conferência — em vez de o sistema arbitrar uma
+// jornada e produzir um saldo que ninguém consegue justificar.
+const MsgRevisarCargaDispensa = "Dispensa: informe a jornada exigida neste dia, conforme o ato que a concedeu."
+
 // MsgRevisarSemHorario avisa que um dia justificado veio sem batimento algum.
 // Na ficha do SFR esses dias costumam ter horário: quase sempre significa que a
 // leitura perdeu os batimentos, e perder ponto real em silêncio é inaceitável.
@@ -20,6 +29,7 @@ const (
 	ObsFeriado            ObsKind = "feriado"
 	ObsPontoFacultativo   ObsKind = "ponto_facultativo"
 	ObsRecesso            ObsKind = "recesso"
+	ObsFerias             ObsKind = "ferias"
 	ObsDispensa           ObsKind = "dispensa"
 	ObsExpedienteReduzido ObsKind = "expediente_reduzido"
 	ObsCompensacao        ObsKind = "compensacao"
@@ -64,6 +74,14 @@ var obsPatterns = []struct {
 	{"EXPEDIENTE REDUZIDO", ObsExpedienteReduzido},
 	{"HORARIO REDUZIDO", ObsExpedienteReduzido},
 	{"JORNADA REDUZIDA", ObsExpedienteReduzido},
+
+	// Férias homologadas: ausência autorizada, não é falta.
+	//
+	// Estava fora do vocabulário dos dois lados do sistema. O front-end acertava
+	// por acidente (dia sem batimento e sem saldo caía em "folga"); o backend
+	// aplicava "dia útil sem batimento = falta" e descontava a jornada inteira.
+	// Num mês com 9 dias de férias isso somava 72 horas de débito inexistente.
+	{"FERIAS", ObsFerias},
 
 	{"DISPENSA", ObsDispensa},
 	{"RECESSO", ObsRecesso},
