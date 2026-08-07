@@ -10,6 +10,9 @@ server
 data/
 settings.json
 
+# Dependências do lint do front-end (o app não tem build)
+node_modules/
+
 # IDE
 .idea/
 .vscode/

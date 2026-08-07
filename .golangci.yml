@@ -1,0 +1,13 @@
+version: "2"
+
+# Conjunto conservador: só o que aponta defeito real, nada de opinião de estilo.
+# O padrão do golangci-lint v2 já é errcheck, govet, ineffassign, staticcheck e
+# unused — exatamente o que se quer aqui.
+linters:
+  default: standard
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
