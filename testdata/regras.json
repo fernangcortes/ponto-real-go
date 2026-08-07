@@ -1,0 +1,96 @@
+{
+  "_comentario": [
+    "Casos compartilhados entre o motor Go (pkg/rules) e o domínio do front-end",
+    "(web/js/domain.js). AS DUAS implementações rodam estes casos e conferem",
+    "contra os MESMOS valores esperados: pkg/rules/regras_compartilhadas_test.go",
+    "e web/js/regras-compartilhadas.test.js.",
+    "",
+    "É o que impede a duplicação de divergir de novo. Antes de existir, as duas",
+    "discordavam em 72 horas num único mês — férias homologadas contadas como",
+    "falta de um lado e como dia neutro do outro — e ninguém percebia.",
+    "",
+    "Ao mudar uma regra, o valor esperado muda AQUI, uma vez, e os dois testes",
+    "passam a exigir a mudança dos dois lados."
+  ],
+  "mes_ano": "06/2026",
+  "casos": [
+    {
+      "nome": "dia completo dentro da jornada",
+      "dia": { "d": 1, "w": "Seg", "e1": "08:00", "s1": "12:00", "e2": "13:00", "s2": "17:00" },
+      "tipo": "completo",
+      "contribui": 0
+    },
+    {
+      "nome": "dia completo com hora extra",
+      "dia": { "d": 1, "w": "Seg", "e1": "08:00", "s1": "12:00", "e2": "13:00", "s2": "17:30" },
+      "tipo": "completo",
+      "contribui": 30
+    },
+    {
+      "nome": "dia util sem batimento e com saldo cheio na ficha e falta",
+      "dia": { "d": 8, "w": "Seg", "saldo": "-08:00" },
+      "tipo": "falta",
+      "contribui": -480
+    },
+    {
+      "nome": "sabado pelo calendario real ainda que a ficha diga Seg",
+      "dia": { "d": 6, "w": "Seg", "saldo": "-08:00" },
+      "tipo": "folga",
+      "contribui": -480
+    },
+    {
+      "nome": "ferias homologadas nao sao falta",
+      "dia": { "d": 8, "w": "Seg", "mot": "Férias - Estatutário" },
+      "tipo": "ferias",
+      "contribui": 0
+    },
+    {
+      "nome": "feriado nao se confunde com ferias",
+      "dia": { "d": 8, "w": "Seg", "mot": "FERIADO MUNICIPAL" },
+      "tipo": "recesso",
+      "contribui": 0
+    },
+    {
+      "nome": "dispensa sem jornada informada e neutra",
+      "dia": { "d": 8, "w": "Seg", "mot": "DISPENSA PARA CURSO", "e1": "08:00", "s1": "12:00", "saldo": "-04:00" },
+      "tipo": "dispensa",
+      "contribui": 0
+    },
+    {
+      "nome": "dispensa com jornada do ato apura contra ela",
+      "dia": { "d": 8, "w": "Seg", "mot": "DISPENSA PARA CURSO", "e1": "08:00", "s1": "12:00", "carga": 120 },
+      "tipo": "dispensa",
+      "contribui": 120
+    },
+    {
+      "nome": "expediente reduzido sem carga e neutro",
+      "dia": { "d": 8, "w": "Seg", "mot": "EXPEDIENTE REDUZIDO - DEC. 10.925", "e1": "08:00", "s1": "12:00", "saldo": "-04:00" },
+      "tipo": "reduzido",
+      "contribui": 0
+    },
+    {
+      "nome": "expediente reduzido com carga do decreto",
+      "dia": { "d": 8, "w": "Seg", "mot": "EXPEDIENTE REDUZIDO", "e1": "08:00", "s1": "12:00", "carga": 180 },
+      "tipo": "reduzido",
+      "contribui": 60
+    },
+    {
+      "nome": "escolha manual util derruba a deteccao de dispensa",
+      "dia": { "d": 8, "w": "Seg", "mot": "DISPENSA PARA CURSO", "e1": "08:00", "s1": "12:00", "e2": "13:00", "s2": "17:00", "day_type_override": "util" },
+      "tipo": "completo",
+      "contribui": 0
+    },
+    {
+      "nome": "escolha manual feriado torna o dia neutro",
+      "dia": { "d": 8, "w": "Seg", "e1": "08:00", "s1": "12:00", "e2": "13:00", "s2": "17:30", "day_type_override": "feriado" },
+      "tipo": "recesso",
+      "contribui": 0
+    },
+    {
+      "nome": "dia parcial sem ajuste herda o saldo lido da ficha",
+      "dia": { "d": 8, "w": "Seg", "e1": "08:00", "saldo": "-06:00" },
+      "tipo": "parcial",
+      "contribui": -360
+    }
+  ]
+}
