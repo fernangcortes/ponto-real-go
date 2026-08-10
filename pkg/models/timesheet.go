@@ -23,6 +23,8 @@ const (
 	DayTypeCompleto DayType = "completo" // dia com 4 pontos
 	DayTypeDispensa DayType = "dispensa" // dispensa para curso, etc.
 	DayTypeRecesso  DayType = "recesso"  // recesso institucional
+	// DayTypeFerias marca férias homologadas: ausência autorizada, dia neutro.
+	DayTypeFerias DayType = "ferias"
 	// DayTypeExpedienteReduzido marca dia com jornada reduzida por decreto.
 	// O ponto batido já é considerado suficiente: não gera horário automático.
 	DayTypeExpedienteReduzido DayType = "expediente_reduzido"
@@ -45,9 +47,26 @@ type DayRecord struct {
 	Tipo       DayType `json:"tipo,omitempty"` // classificação do dia
 
 	// CargaEsperada é a jornada exigida NESTE dia, em minutos.
-	// 0 = usar a carga global de RulesConfig. Preenchida manualmente em dias de
-	// expediente reduzido, já que cada decreto define uma jornada diferente.
+	// 0 = usar a carga global de RulesConfig. Informada pelo usuário em dias de
+	// expediente reduzido e de dispensa, já que cada ato define uma jornada.
 	CargaEsperada int `json:"carga,omitempty"`
+
+	// LimposManualmente lista os índices de batimento ([E1,S1,E2,S2]) que o
+	// usuário apagou de propósito.
+	//
+	// Sem esse registro não havia como deixar um horário em branco: o campo
+	// gerado pelo sistema (Bloqueio == 0) era repreenchido pelo auto-preencher
+	// assim que perdia o foco. Marcar o campo como "original" resolveria o
+	// repreenchimento, mas o deixaria somente-leitura na próxima digitação.
+	LimposManualmente []int `json:"limpos,omitempty"`
+
+	// DayTypeOverride é o tipo de dia escolhido manualmente pelo usuário, que
+	// prevalece sobre a detecção automática pela observação.
+	//
+	// Vive aqui, e não em MonthDayRecord, porque afeta a CLASSIFICAÇÃO do dia —
+	// e portanto o cálculo. Enquanto ficou só no registro do mês, o /api/process
+	// não enxergava as escolhas do usuário e classificava por conta própria.
+	DayTypeOverride string `json:"day_type_override,omitempty"`
 
 	// Revisar sinaliza que o dia precisa de conferência manual do usuário.
 	Revisar       bool   `json:"revisar,omitempty"`
@@ -60,8 +79,6 @@ type Timesheet struct {
 	MesAno   string      `json:"mes_ano"` // "01/2026"
 	Servidor ServerInfo  `json:"servidor"`
 	Dias     []DayRecord `json:"dias"`
-	Atrasos  string      `json:"atrasos"` // total de atrasos: "-09:28"
-	Faltas   int         `json:"faltas"`  // total de faltas: 8
 }
 
 // TimesheetSummary contém os totais calculados do mês.
@@ -77,7 +94,11 @@ type TimesheetSummary struct {
 
 // ProcessRequest é o payload enviado pelo front-end para processamento.
 type ProcessRequest struct {
-	Dias []DayRecord `json:"dias"`
+	// MesAno permite corrigir o dia da semana pelo calendário real em vez de
+	// confiar no campo "w" lido do documento, que às vezes vem deslocado.
+	// Vazio mantém o que veio no registro.
+	MesAno string      `json:"mes_ano,omitempty"`
+	Dias   []DayRecord `json:"dias"`
 }
 
 // ProcessResponse é a resposta do backend ao front-end.
@@ -90,18 +111,15 @@ type ProcessResponse struct {
 type RulesConfig struct {
 	CargaHorariaDiaria int    `json:"carga_horaria_diaria_min"` // em minutos (480 = 8h)
 	AlmocoMinimo       int    `json:"almoco_minimo_min"`        // em minutos (60 = 1h)
-	VariacaoMin        int    `json:"variacao_min_min"`         // total mín gerado (475 = 7h55m)
-	VariacaoMax        int    `json:"variacao_max_min"`         // total máx gerado (500 = 8h20m)
 	AlmocoGeradoMin    int    `json:"almoco_gerado_min_min"`    // almoço gerado mín (60 = 1h)
 	AlmocoGeradoMax    int    `json:"almoco_gerado_max_min"`    // almoço gerado máx (75 = 1h15m)
-	HorarioContratual  string `json:"horario_contratual"`       // "08:30-12:00/13:00-17:30"
 	NomeInstituicao    string `json:"nome_instituicao"`
 }
 
-// MonthDayRecord estende DayRecord com o override do tipo de dia.
+// MonthDayRecord estende DayRecord com o que só diz respeito ao documento SEI.
+// A escolha manual do tipo de dia mora em DayRecord, porque afeta o cálculo.
 type MonthDayRecord struct {
 	DayRecord
-	DayTypeOverride string `json:"day_type_override,omitempty"`
 
 	// OcorrenciaManual sobrepõe manualmente se o dia deve aparecer como
 	// ocorrência no documento SEI: nil = automático (segue Bloqueio/o),
@@ -136,6 +154,35 @@ type AppSettings struct {
 	OpenRouterAPIKey string `json:"open_router_api_key,omitempty"`
 }
 
+// Justificativa é uma frase da biblioteca do usuário, guardada para ser
+// reaproveitada em qualquer mês.
+//
+// O texto é guardado SEM a data — "10/07/2026 - " é reposto na hora de usar.
+// Uma frase presa a uma data não serve para o mês seguinte, que é justamente o
+// motivo de existir uma biblioteca.
+type Justificativa struct {
+	Texto string `json:"texto"`
+
+	// Tipo é o tipo de dia em que a frase foi salva ("dispensa", "util",
+	// "reduzido"). Não restringe nada: serve para ordenar a lista, pondo as
+	// frases de dispensa à frente quando o dia é de dispensa.
+	Tipo string `json:"tipo,omitempty"`
+
+	// Usos conta quantas vezes a frase foi aplicada. Decide qual delas vira a
+	// sugestão do dia quando há mais de uma para o mesmo tipo.
+	Usos int `json:"usos,omitempty"`
+}
+
+// BibliotecaJustificativas é a coleção inteira, como vai e volta do disco.
+//
+// A gravação é sempre da lista completa, nunca de um item. Isso torna a
+// exclusão trivial (a frase simplesmente não está na lista que chegou) e
+// dispensa identificador por frase — o estado É a lista.
+type BibliotecaJustificativas struct {
+	Frases    []Justificativa `json:"frases"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 // ValidateResponse é a resposta da validação de um dia.
 type ValidateResponse struct {
 	Valid   bool     `json:"valid"`
@@ -144,4 +191,3 @@ type ValidateResponse struct {
 	Lunch   string   `json:"lunch,omitempty"`
 	Balance string   `json:"balance,omitempty"`
 }
-

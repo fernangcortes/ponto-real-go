@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancela execuções antigas do mesmo branch: só a última interessa.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Formatação
+        # Roda em Linux, onde os arquivos vêm em LF (ver .gitattributes).
+        # No Windows este comando lista tudo por causa do CRLF da cópia de
+        # trabalho — por isso a checagem que vale é esta aqui.
+        run: |
+          naoformatados=$(gofmt -l .)
+          if [ -n "$naoformatados" ]; then
+            echo "Arquivos fora do gofmt:"
+            echo "$naoformatados"
+            echo
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Testes com detector de corrida
+        # O -race é o motivo principal deste CI existir: exige compilador C e
+        # não roda na máquina de desenvolvimento (Windows sem gcc). Sem ele,
+        # TestSettingsConcorrentesNaoDaoRace passa mesmo com o bug de volta.
+        run: go test -race ./...
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  web:
+    name: Front-end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Só regras de defeito real (no-undef, no-unused-vars, eqeqeq).
+      # O app não tem build: o Node aqui serve ao lint e aos testes.
+      - run: npm run lint
+
+      # Domínio do front-end (js/domain.js): a mesma aritmética que decide o
+      # saldo que o servidor assina, agora verificável sem navegador.
+      - run: npm test

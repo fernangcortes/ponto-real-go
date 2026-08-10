@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fernangcortes/ponto-real-go/pkg/apperr"
 	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
 	"github.com/fernangcortes/ponto-real-go/pkg/repository"
@@ -37,98 +38,32 @@ func (s *TimesheetService) GetEngineConfig() models.RulesConfig {
 	return s.engine.Config
 }
 
-// ProcessUpload realiza a extração do arquivo e executa o ajuste determinístico dos horários faltantes.
-func (s *TimesheetService) ProcessUpload(
-	fileBytes []byte,
-	mimeType string,
-	filename string,
-	selectedModel string,
-	provider string,
-	apiKey string,
-) (*models.ProcessResponse, error) {
-	// 1. Criar o extrator adequado
-	extractor, err := s.extractorFactory.Create(provider, apiKey, selectedModel)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. Extrair dados brutos
-	timesheet, err := extractor.Extract(fileBytes, mimeType)
-	if err != nil {
-		return nil, fmt.Errorf("erro na extração: %w", err)
-	}
-
-	// 3. Preencher MesAno se estiver ausente ou inválido usando o nome do arquivo
-	if !s.IsValidMesAno(timesheet.MesAno) {
-		filenameDate := s.ExtractDateFromFilename(filename)
-		if filenameDate != "" {
-			timesheet.MesAno = filenameDate
-			fmt.Printf("[Service] MesAno extraído do nome do arquivo '%s': %s\n", filename, filenameDate)
-		}
-	}
-
-	// 4. Realinhar a coluna de observações usando o calendário real como âncora.
-	// Precisa vir antes do ajuste, pois é a observação que define se o dia pode
-	// ter horário gerado (ex: expediente reduzido não pode).
-	extraction.AlignObservacoes(timesheet)
-
-	// 5. Ajustar horários faltantes (lógica determinística)
-	adjuster := extraction.NewRulesAdjuster(s.engine)
-	adjusted := adjuster.Adjust(timesheet)
-
-	// 6. Classificar dias e calcular resumo
-	for i := range adjusted.Dias {
-		adjusted.Dias[i].Tipo = s.engine.ClassifyDay(&adjusted.Dias[i])
-	}
-	summary := s.engine.CalculateSummary(adjusted.Dias)
-
-	resp := &models.ProcessResponse{
-		Timesheet: *adjusted,
-		Summary:   summary,
-	}
-
-	// 7. Auto-salvar o mês processado em disco
-	if adjusted.MesAno != "" {
-		monthDays := make([]models.MonthDayRecord, len(adjusted.Dias))
-		for i, d := range adjusted.Dias {
-			monthDays[i] = models.MonthDayRecord{DayRecord: d}
-		}
-		monthData := models.MonthData{
-			MesAno:   adjusted.MesAno,
-			Servidor: adjusted.Servidor,
-			Dias:     monthDays,
-		}
-		if err := s.repo.Save(monthData); err != nil {
-			fmt.Printf("[WARN] Erro ao auto-salvar mês: %v\n", err)
-		}
-	}
-
-	return resp, nil
-}
-
 // Process processa uma lista de dias, classificando-os e gerando o resumo de saldo.
 func (s *TimesheetService) Process(req models.ProcessRequest) (*models.ProcessResponse, error) {
 	if len(req.Dias) == 0 {
-		return nil, fmt.Errorf("nenhum dia fornecido")
+		return nil, fmt.Errorf("%w: nenhum dia fornecido", apperr.ErrRequisicaoInvalida)
 	}
 
-	// Classificar cada dia
-	for i := range req.Dias {
-		req.Dias[i].Tipo = s.engine.ClassifyDay(&req.Dias[i])
+	ts := &models.Timesheet{
+		Version: 1,
+		MesAno:  req.MesAno,
+		Dias:    req.Dias,
 	}
 
-	// Calcular resumo
-	summary := s.engine.CalculateSummary(req.Dias)
+	// Corrigir o dia da semana pelo calendário real quando o mês é conhecido.
+	// Sem isso o motor confia no campo "w" lido do documento, que às vezes vem
+	// deslocado — e é ele que decide se um dia sem batimento é falta ou folga.
+	// Com MesAno vazio a função não faz nada, então continua válido chamar sem.
+	extraction.AlignObservacoes(ts)
 
-	resp := &models.ProcessResponse{
-		Timesheet: models.Timesheet{
-			Version: 1,
-			Dias:    req.Dias,
-		},
-		Summary: summary,
+	for i := range ts.Dias {
+		ts.Dias[i].Tipo = s.engine.ClassifyDay(&ts.Dias[i])
 	}
 
-	return resp, nil
+	return &models.ProcessResponse{
+		Timesheet: *ts,
+		Summary:   s.engine.CalculateSummary(ts.Dias),
+	}, nil
 }
 
 // Validate valida as regras de horários para um único dia.

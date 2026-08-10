@@ -352,6 +352,184 @@ func TestHorariosGeradosSempreValidos(t *testing.T) {
 	}
 }
 
+// TestEntradaGeradaNuncaEhDeMadrugada trava o piso das 07:00 para toda entrada
+// da manhã INVENTADA — batimento real do servidor é intocável, seja qual for a
+// hora.
+//
+// O piso existia em todos os geradores de entrada menos num: o do dia em que só
+// o retorno do almoço foi batido. Ali um único ponto às 11:33 produzia entrada
+// às 06:01, horário que seguiria para um documento assinado sem que nada
+// reclamasse: a ordem cronológica está correta e nenhum ponto real sumiu, que
+// era tudo o que a suíte conferia.
+func TestEntradaGeradaNuncaEhDeMadrugada(t *testing.T) {
+	adjuster := NewRulesAdjuster(rules.NewEngineWithDefaults())
+
+	const pisoManha = 7 * 60
+
+	verifica := func(t *testing.T, campos [4]string) {
+		t.Helper()
+		out := adjuster.Adjust(&models.Timesheet{
+			MesAno: "06/2026",
+			Dias: []models.DayRecord{{
+				Dia: 10, DiaSemana: "Qua",
+				Entrada1: campos[0], Saida1: campos[1],
+				Entrada2: campos[2], Saida2: campos[3],
+			}},
+		}).Dias[0]
+
+		if len(out.Bloqueio) != 4 || out.Bloqueio[0] != 0 {
+			return // entrada real, ou dia que o adjuster não toca
+		}
+		if e1 := parseMins(out.Entrada1); e1 > 0 && e1 < pisoManha {
+			t.Fatalf("batimentos %v geraram início de expediente de madrugada: %s %s %s %s",
+				campos, out.Entrada1, out.Saida1, out.Entrada2, out.Saida2)
+		}
+	}
+
+	// O caso que revelou o defeito.
+	t.Run("um ponto às 11:33 no retorno do almoço", func(t *testing.T) {
+		for i := 0; i < 200; i++ {
+			verifica(t, [4]string{"", "", "11:33", ""})
+		}
+	})
+
+	// Um único batimento, em qualquer coluna, em qualquer minuto do dia.
+	t.Run("um ponto em qualquer minuto", func(t *testing.T) {
+		for col := 0; col < 4; col++ {
+			for m := 1; m <= fimDoDia; m++ {
+				var campos [4]string
+				campos[col] = formatMins(m)
+				for i := 0; i < 4; i++ {
+					verifica(t, campos)
+				}
+			}
+		}
+	})
+
+	// As demais combinações, na mesma grade do teste exaustivo.
+	t.Run("dois e três batimentos", func(t *testing.T) {
+		horarios := []string{"", "06:15", "08:30", "10:29", "11:30", "12:33",
+			"13:02", "15:59", "16:00", "18:40", "20:06", "23:40"}
+		for _, a := range horarios {
+			for _, b := range horarios {
+				for _, c := range horarios {
+					for _, e := range horarios {
+						verifica(t, [4]string{a, b, c, e})
+					}
+				}
+			}
+		}
+	})
+}
+
+// TestHorarioRedondoEhPreferenciaNaoLei trava o comportamento de
+// avoidRoundMinsEntre: fugir do minuto redondo é o que se quer na maioria das
+// vezes, mas cede quando o deslocamento não cabe.
+func TestHorarioRedondoEhPreferenciaNaoLei(t *testing.T) {
+	const meioDia = 12 * 60 // minuto redondo
+
+	t.Run("sem limite, foge do redondo", func(t *testing.T) {
+		for i := 0; i < 500; i++ {
+			if got := avoidRoundMins(meioDia); minutoRedondo(got) {
+				t.Fatalf("horário sem restrição continuou redondo: %s", formatMins(got))
+			}
+		}
+	})
+
+	t.Run("respeita o limite recebido", func(t *testing.T) {
+		// Só pode andar para trás, no máximo 3 minutos.
+		for i := 0; i < 500; i++ {
+			got := avoidRoundMinsEntre(meioDia, meioDia-3, meioDia)
+			if got < meioDia-3 || got > meioDia {
+				t.Fatalf("saiu da faixa: %s", formatMins(got))
+			}
+			if minutoRedondo(got) {
+				t.Fatalf("havia espaço para fugir do redondo e não fugiu: %s", formatMins(got))
+			}
+		}
+	})
+
+	t.Run("cede quando nada cabe", func(t *testing.T) {
+		// Faixa que não admite nenhum deslocamento: o redondo tem de ficar.
+		for i := 0; i < 100; i++ {
+			if got := avoidRoundMinsEntre(meioDia, meioDia, meioDia); got != meioDia {
+				t.Fatalf("sem espaço para andar, devia ter ficado em %s; veio %s",
+					formatMins(meioDia), formatMins(got))
+			}
+		}
+	})
+
+	t.Run("não mexe em horário que já não é redondo", func(t *testing.T) {
+		if got := avoidRoundMinsEntre(meioDia+7, semPiso, semTeto); got != meioDia+7 {
+			t.Fatalf("horário não redondo foi alterado: %s", formatMins(got))
+		}
+	})
+}
+
+// TestAlmocoGeradoRespeitaOMinimoLegal trava a promessa que almocoGerado faz no
+// próprio comentário: um almoço gerado nunca fica abaixo do mínimo legal, senão
+// produz um dia que a própria ValidateDay recusa.
+//
+// O sorteio do almoço sempre respeitou o mínimo; quem o encurtava era o passo
+// seguinte, que afasta o horário dos minutos redondos e podia comer o intervalo
+// por cima — 14:30 de retorno real saía com almoço de 58 minutos.
+func TestAlmocoGeradoRespeitaOMinimoLegal(t *testing.T) {
+	engine := rules.NewEngineWithDefaults()
+	adjuster := NewRulesAdjuster(engine)
+	minAlmoco := engine.Config.AlmocoMinimo
+
+	horarios := []string{"", "06:15", "08:30", "10:29", "11:30", "12:33",
+		"13:02", "14:30", "15:59", "16:00", "18:40", "20:06", "23:40"}
+
+	for _, a := range horarios {
+		for _, b := range horarios {
+			for _, c := range horarios {
+				for _, e := range horarios {
+					for rep := 0; rep < 3; rep++ {
+						out := adjuster.Adjust(&models.Timesheet{
+							MesAno: "06/2026",
+							Dias: []models.DayRecord{{
+								Dia: 10, DiaSemana: "Qua",
+								Entrada1: a, Saida1: b, Entrada2: c, Saida2: e,
+							}},
+						}).Dias[0]
+						if len(out.Bloqueio) != 4 {
+							continue
+						}
+
+						e1 := parseMins(out.Entrada1)
+						s1 := parseMins(out.Saida1)
+						e2 := parseMins(out.Entrada2)
+						if s1 <= 0 || e2 <= 0 {
+							continue
+						}
+
+						// Almoço formado só por batimentos reais é do servidor,
+						// não da geração: se ele almoçou em 40 minutos, azar.
+						if out.Bloqueio[1] == 1 && out.Bloqueio[2] == 1 {
+							continue
+						}
+
+						// Entrada e retorno reais colados um no outro não deixam
+						// almoço legal nenhum caber — nesse caso a saída para o
+						// almoço vai para o meio dos dois, como manda o código.
+						// Exigir o mínimo aqui seria exigir o impossível.
+						if out.Bloqueio[0] == 1 && out.Bloqueio[2] == 1 && e2-e1 < 2*minAlmoco {
+							continue
+						}
+
+						if e2-s1 < minAlmoco {
+							t.Fatalf("batimentos [%s %s %s %s] geraram almoço de %d min (mínimo é %d): %s %s %s %s",
+								a, b, c, e, e2-s1, minAlmoco,
+								out.Entrada1, out.Saida1, out.Entrada2, out.Saida2)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestAvisoAntigoNaoPersisteQuandoResolvido(t *testing.T) {
 	// Folha alinhada, mas carregando um aviso gravado por uma versão anterior.
 	ts := junho2026(map[int]string{

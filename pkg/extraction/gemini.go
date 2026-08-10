@@ -2,6 +2,7 @@ package extraction
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fernangcortes/ponto-real-go/pkg/apperr"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
 )
 
@@ -20,6 +22,8 @@ type GeminiExtractor struct {
 	APIKey string
 	Model  string // "gemini-2.5-flash", "gemini-3.1-flash-lite-preview" ou "gemini-3.1-pro-preview"
 	client *http.Client
+	// baseURL permite apontar para um servidor de teste; vazio usa a API real.
+	baseURL string
 }
 
 // NewGeminiExtractor cria um novo extractor Gemini.
@@ -34,6 +38,13 @@ func NewGeminiExtractor(apiKey, model string) *GeminiExtractor {
 			Timeout: 120 * time.Second,
 		},
 	}
+}
+
+func (g *GeminiExtractor) base() string {
+	if g.baseURL != "" {
+		return g.baseURL
+	}
+	return geminiAPIBase
 }
 
 // geminiRequest é o payload do request para a API generateContent.
@@ -74,7 +85,7 @@ type geminiResponse struct {
 }
 
 // Extract envia a imagem/PDF ao Gemini e retorna o Timesheet extraído.
-func (g *GeminiExtractor) Extract(fileBytes []byte, mimeType string) (*models.Timesheet, error) {
+func (g *GeminiExtractor) Extract(ctx context.Context, fileBytes []byte, mimeType string) (*models.Timesheet, error) {
 	// Codificar arquivo em base64
 	b64Data := base64.StdEncoding.EncodeToString(fileBytes)
 
@@ -108,74 +119,73 @@ func (g *GeminiExtractor) Extract(fileBytes []byte, mimeType string) (*models.Ti
 		return nil, fmt.Errorf("erro ao serializar request: %w", err)
 	}
 
-	// Montar URL
-	url := fmt.Sprintf("%s/%s:generateContent?key=%s", geminiAPIBase, g.Model, g.APIKey)
+	url := fmt.Sprintf("%s/%s:generateContent", g.base(), g.Model)
 
-	// Fazer request com retry
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt*2) * time.Second)
-		}
+	return comTentativas(ctx, func(ctx context.Context, tentativa int) (*models.Timesheet, error) {
+		return g.tentar(ctx, url, jsonBody, tentativa)
+	})
+}
 
-		resp, err := g.client.Post(url, "application/json", bytes.NewReader(jsonBody))
-		if err != nil {
-			lastErr = fmt.Errorf("erro na requisição HTTP (tentativa %d): %w", attempt+1, err)
-			continue
-		}
-		defer resp.Body.Close()
+// tentar faz UMA chamada ao Gemini. O corpo da resposta é fechado ao fim desta
+// função — antes o defer ficava dentro do laço de retry e só liberava as três
+// conexões quando o Extract inteiro terminava.
+func (g *GeminiExtractor) tentar(ctx context.Context, url string, jsonBody []byte, tentativa int) (*models.Timesheet, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, naoRepetir(fmt.Errorf("erro ao criar requisição: %w", err))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Chave no cabeçalho, não na query string: URL costuma parar em log de
+	// proxy e em histórico, e a chave iria junto.
+	req.Header.Set("x-goog-api-key", g.APIKey)
 
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			lastErr = fmt.Errorf("erro ao ler resposta (tentativa %d): %w", attempt+1, err)
-			continue
-		}
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição HTTP (tentativa %d): %w", tentativa, err)
+	}
+	defer resp.Body.Close()
 
-		// Parse da resposta
-		var gemResp geminiResponse
-		if err := json.Unmarshal(body, &gemResp); err != nil {
-			lastErr = fmt.Errorf("erro ao parsear resposta (tentativa %d): %w", attempt+1, err)
-			continue
-		}
-
-		// Verificar erro da API
-		if gemResp.Error != nil {
-			lastErr = fmt.Errorf("erro da API Gemini [%d]: %s", gemResp.Error.Code, gemResp.Error.Message)
-			if gemResp.Error.Code == 429 {
-				time.Sleep(5 * time.Second) // rate limit
-				continue
-			}
-			return nil, lastErr // erro não-retryable
-		}
-
-		// Extrair texto da resposta
-		if len(gemResp.Candidates) == 0 || len(gemResp.Candidates[0].Content.Parts) == 0 {
-			lastErr = fmt.Errorf("resposta vazia do Gemini (tentativa %d)", attempt+1)
-			continue
-		}
-
-		textResponse := gemResp.Candidates[0].Content.Parts[0].Text
-
-		// Limpar possíveis wrappers de markdown (```json...```)
-		textResponse = cleanJSONResponse(textResponse)
-
-		// Parse do JSON extraído
-		var timesheet models.Timesheet
-		if err := json.Unmarshal([]byte(textResponse), &timesheet); err != nil {
-			lastErr = fmt.Errorf("resposta do Gemini não é JSON válido (tentativa %d): %w\nResposta: %s", attempt+1, err, truncate(textResponse, 500))
-			continue
-		}
-
-		// Validação básica
-		if len(timesheet.Dias) == 0 {
-			lastErr = fmt.Errorf("Gemini retornou 0 dias (tentativa %d)", attempt+1)
-			continue
-		}
-
-		return &timesheet, nil
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler resposta (tentativa %d): %w", tentativa, err)
 	}
 
-	return nil, fmt.Errorf("falha após 3 tentativas: %w", lastErr)
+	var gemResp geminiResponse
+	if err := json.Unmarshal(body, &gemResp); err != nil {
+		return nil, fmt.Errorf("erro ao parsear resposta (tentativa %d): %w", tentativa, err)
+	}
+
+	if gemResp.Error != nil {
+		apiErr := fmt.Errorf("%w — Gemini [%d]: %s", apperr.ErrProvedorRecusou, gemResp.Error.Code, gemResp.Error.Message)
+		if gemResp.Error.Code == http.StatusTooManyRequests {
+			// Rate limit: espera um pouco mais que o backoff padrão antes de
+			// devolver o erro como repetível.
+			if err := esperar(ctx, esperaRateLimit); err != nil {
+				return nil, err
+			}
+			return nil, apiErr
+		}
+		return nil, naoRepetir(apiErr)
+	}
+
+	if len(gemResp.Candidates) == 0 || len(gemResp.Candidates[0].Content.Parts) == 0 {
+		return nil, fmt.Errorf("resposta vazia do Gemini (tentativa %d)", tentativa)
+	}
+
+	// Limpar possíveis wrappers de markdown (```json...```)
+	textResponse := cleanJSONResponse(gemResp.Candidates[0].Content.Parts[0].Text)
+
+	var timesheet models.Timesheet
+	if err := json.Unmarshal([]byte(textResponse), &timesheet); err != nil {
+		return nil, fmt.Errorf("resposta do Gemini não é JSON válido (tentativa %d): %w\nResposta: %s",
+			tentativa, err, truncate(textResponse, 500))
+	}
+
+	if len(timesheet.Dias) == 0 {
+		return nil, fmt.Errorf("o Gemini retornou 0 dias (tentativa %d)", tentativa)
+	}
+
+	return &timesheet, nil
 }
 
 // cleanJSONResponse remove wrappers de markdown da resposta.

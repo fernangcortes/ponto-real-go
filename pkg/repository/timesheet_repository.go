@@ -7,5 +7,4 @@ type TimesheetRepository interface {
 	Save(data models.MonthData) error
 	Load(mesAno string) (*models.MonthData, error)
 	List() ([]models.MonthSummary, error)
-	Delete(mesAno string) error
 }

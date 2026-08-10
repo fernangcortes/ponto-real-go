@@ -2,6 +2,7 @@ package extraction
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/fernangcortes/ponto-real-go/pkg/apperr"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
 )
 
@@ -19,6 +21,15 @@ type OpenRouterExtractor struct {
 	APIKey string
 	Model  string
 	client *http.Client
+	// endpoint permite apontar para um servidor de teste; vazio usa a API real.
+	endpoint string
+}
+
+func (o *OpenRouterExtractor) url() string {
+	if o.endpoint != "" {
+		return o.endpoint
+	}
+	return openRouterAPIBase
 }
 
 // NewOpenRouterExtractor cria um novo extractor OpenRouter.
@@ -86,7 +97,7 @@ type openRouterResponse struct {
 }
 
 // Extract envia o arquivo (imagem ou PDF) ao OpenRouter e retorna o Timesheet estruturado.
-func (o *OpenRouterExtractor) Extract(fileBytes []byte, mimeType string) (*models.Timesheet, error) {
+func (o *OpenRouterExtractor) Extract(ctx context.Context, fileBytes []byte, mimeType string) (*models.Timesheet, error) {
 	b64Data := base64.StdEncoding.EncodeToString(fileBytes)
 
 	var mediaContent interface{}
@@ -131,71 +142,62 @@ func (o *OpenRouterExtractor) Extract(fileBytes []byte, mimeType string) (*model
 		return nil, fmt.Errorf("erro ao serializar request: %w", err)
 	}
 
-	// Fazer requisição HTTP
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt*2) * time.Second)
-		}
+	return comTentativas(ctx, func(ctx context.Context, tentativa int) (*models.Timesheet, error) {
+		return o.tentar(ctx, jsonBody, tentativa)
+	})
+}
 
-		req, err := http.NewRequest("POST", openRouterAPIBase, bytes.NewReader(jsonBody))
-		if err != nil {
-			lastErr = fmt.Errorf("erro ao criar requisição (tentativa %d): %w", attempt+1, err)
-			continue
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+o.APIKey)
-		req.Header.Set("HTTP-Referer", "https://github.com/fernangcortes/ponto-real-go")
-		req.Header.Set("X-Title", "Ponto Real Go")
-
-		resp, err := o.client.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("erro na requisição HTTP (tentativa %d): %w", attempt+1, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			lastErr = fmt.Errorf("erro ao ler resposta (tentativa %d): %w", attempt+1, err)
-			continue
-		}
-
-		var orResp openRouterResponse
-		if err := json.Unmarshal(body, &orResp); err != nil {
-			lastErr = fmt.Errorf("erro ao parsear resposta do OpenRouter (tentativa %d): %w. Resposta: %s", attempt+1, err, string(body))
-			continue
-		}
-
-		if orResp.Error != nil {
-			lastErr = fmt.Errorf("erro da API OpenRouter: %s", orResp.Error.Message)
-			return nil, lastErr // erro não-retryable (geralmente chave inválida ou saldo insuficiente)
-		}
-
-		if len(orResp.Choices) == 0 || orResp.Choices[0].Message.Content == "" {
-			lastErr = fmt.Errorf("resposta vazia da API (tentativa %d). Resposta: %s", attempt+1, string(body))
-			continue
-		}
-
-		textResponse := orResp.Choices[0].Message.Content
-		textResponse = cleanJSONResponse(textResponse)
-
-		// Parse do JSON extraído
-		var timesheet models.Timesheet
-		if err := json.Unmarshal([]byte(textResponse), &timesheet); err != nil {
-			lastErr = fmt.Errorf("resposta do OpenRouter não é JSON válido (tentativa %d): %w\nResposta: %s", attempt+1, err, truncate(textResponse, 500))
-			continue
-		}
-
-		// Validação básica
-		if len(timesheet.Dias) == 0 {
-			lastErr = fmt.Errorf("OpenRouter retornou 0 dias (tentativa %d)", attempt+1)
-			continue
-		}
-
-		return &timesheet, nil
+// tentar faz UMA chamada ao OpenRouter, fechando o corpo da resposta ao fim
+// desta função em vez de acumular as três até o Extract terminar.
+func (o *OpenRouterExtractor) tentar(ctx context.Context, jsonBody []byte, tentativa int) (*models.Timesheet, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.url(), bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, naoRepetir(fmt.Errorf("erro ao criar requisição: %w", err))
 	}
 
-	return nil, fmt.Errorf("falha após 3 tentativas: %w", lastErr)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+o.APIKey)
+	req.Header.Set("HTTP-Referer", "https://github.com/fernangcortes/ponto-real-go")
+	req.Header.Set("X-Title", "Ponto Real Go")
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("erro na requisição HTTP (tentativa %d): %w", tentativa, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler resposta (tentativa %d): %w", tentativa, err)
+	}
+
+	var orResp openRouterResponse
+	if err := json.Unmarshal(body, &orResp); err != nil {
+		return nil, fmt.Errorf("erro ao parsear resposta do OpenRouter (tentativa %d): %w. Resposta: %s",
+			tentativa, err, truncate(string(body), 500))
+	}
+
+	if orResp.Error != nil {
+		// Geralmente chave inválida ou saldo insuficiente: repetir não ajuda.
+		return nil, naoRepetir(fmt.Errorf("%w — OpenRouter: %s", apperr.ErrProvedorRecusou, orResp.Error.Message))
+	}
+
+	if len(orResp.Choices) == 0 || orResp.Choices[0].Message.Content == "" {
+		return nil, fmt.Errorf("resposta vazia da API (tentativa %d). Resposta: %s",
+			tentativa, truncate(string(body), 500))
+	}
+
+	textResponse := cleanJSONResponse(orResp.Choices[0].Message.Content)
+
+	var timesheet models.Timesheet
+	if err := json.Unmarshal([]byte(textResponse), &timesheet); err != nil {
+		return nil, fmt.Errorf("resposta do OpenRouter não é JSON válido (tentativa %d): %w\nResposta: %s",
+			tentativa, err, truncate(textResponse, 500))
+	}
+
+	if len(timesheet.Dias) == 0 {
+		return nil, fmt.Errorf("OpenRouter retornou 0 dias (tentativa %d)", tentativa)
+	}
+
+	return &timesheet, nil
 }

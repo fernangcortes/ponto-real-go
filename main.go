@@ -4,90 +4,85 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
+	"unicode/utf8"
 
-	"github.com/fernangcortes/ponto-real-go/pkg/api"
-	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
-	"github.com/fernangcortes/ponto-real-go/pkg/repository"
-	"github.com/fernangcortes/ponto-real-go/pkg/rules"
-	"github.com/fernangcortes/ponto-real-go/pkg/service"
+	"github.com/fernangcortes/ponto-real-go/pkg/app"
+	"github.com/fernangcortes/ponto-real-go/pkg/version"
 )
 
 //go:embed all:web
 var webFS embed.FS
 
 func main() {
-	// Determinar porta
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	// Carregar regras
-	engine, err := loadRules()
-	if err != nil {
-		fmt.Printf("[WARN] Usando regras padrão: %v\n", err)
-		engine = rules.NewEngineWithDefaults()
-	}
+	app.ConfigurarLog(os.Getenv("PONTO_REAL_DEBUG") == "1")
 
-	// Inicializar dependências (Injeção de Dependências explícita)
-	timesheetRepo := repository.NewJSONTimesheetRepository("data")
-	settingsRepo := repository.NewJSONSettingsRepository("settings.json")
-	extractorFactory := extraction.NewRegistryExtractorFactory()
-
-	timesheetService := service.NewTimesheetService(engine, timesheetRepo, extractorFactory)
-	handler := api.NewHandler(timesheetService, settingsRepo)
-
-	// Configurar rotas
-	mux := http.NewServeMux()
-
-	// Registrar endpoints da API usando o api.BuildHandler
-	apiHandler := api.BuildHandler(handler)
-	mux.Handle("/api/", apiHandler)
-
-	// Servir arquivos estáticos do front-end (embeds)
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {
-		fmt.Printf("[FATAL] Erro ao montar front-end: %v\n", err)
+		slog.Error("não foi possível montar o front-end embutido", "erro", err)
 		os.Exit(1)
 	}
-	mux.Handle("/", http.FileServer(http.FS(webContent)))
 
-	// Aplicar middlewares globais a todo o servidor (estáticos + API)
-	finalHandler := api.Chain(mux,
-		api.RecoveryMiddleware,
-		api.LoggingMiddleware,
-		api.CORSMiddleware,
-	)
+	servidor := app.BuildServer(app.ConfigFromEnv(), webContent)
 
-	// Iniciar servidor
-	fmt.Printf("\n")
-	fmt.Printf("  ╔══════════════════════════════════════╗\n")
-	fmt.Printf("  ║       🕐 Ponto Real Go v1.0.0       ║\n")
-	fmt.Printf("  ╠══════════════════════════════════════╣\n")
-	fmt.Printf("  ║  Server:  http://localhost:%s      ║\n", port)
-	fmt.Printf("  ║  API:     http://localhost:%s/api  ║\n", port)
-	fmt.Printf("  ║  Regras:  %s  ║\n", engine.Config.NomeInstituicao[:30])
-	fmt.Printf("  ╚══════════════════════════════════════╝\n")
-	fmt.Printf("\n")
+	imprimirBanner(port, servidor.Regras.NomeInstituicao)
 
-	if err := http.ListenAndServe(":"+port, finalHandler); err != nil {
-		fmt.Printf("[FATAL] %v\n", err)
+	if err := http.ListenAndServe(":"+port, servidor.Handler); err != nil {
+		slog.Error("servidor encerrado", "erro", err)
 		os.Exit(1)
 	}
 }
 
-func loadRules() (*rules.Engine, error) {
-	// Tentar carregar de arquivo local primeiro
-	paths := []string{
-		"rules.json",
-		"pkg/rules/rules.json",
+// larguraCaixa é o espaço útil entre as bordas do banner.
+const larguraCaixa = 38
+
+func imprimirBanner(port, instituicao string) {
+	fmt.Printf("\n")
+	fmt.Printf("  ╔%s╗\n", repetir("═", larguraCaixa))
+	fmt.Printf("  ║%s║\n", centralizar("🕐 Ponto Real Go v"+version.Atual, larguraCaixa))
+	fmt.Printf("  ╠%s╣\n", repetir("═", larguraCaixa))
+	fmt.Printf("  ║%s║\n", alinhar("  Server:  http://localhost:"+port, larguraCaixa))
+	fmt.Printf("  ║%s║\n", alinhar("  API:     http://localhost:"+port+"/api", larguraCaixa))
+	fmt.Printf("  ║%s║\n", alinhar("  Regras:  "+instituicao, larguraCaixa))
+	fmt.Printf("  ╚%s╝\n", repetir("═", larguraCaixa))
+	fmt.Printf("\n")
+}
+
+// alinhar corta ou completa o texto para caber exatamente na largura da caixa.
+//
+// Conta runas, não bytes: o nome da instituição vem das regras e costuma ter
+// acentos. A versão anterior fatiava com s[:30], o que estourava com nome curto
+// e cortava acento no meio com nome acentuado.
+func alinhar(texto string, largura int) string {
+	if utf8.RuneCountInString(texto) > largura {
+		return string([]rune(texto)[:largura-1]) + "…"
 	}
-	for _, p := range paths {
-		if e, err := rules.NewEngine(p); err == nil {
-			return e, nil
-		}
+	return texto + repetir(" ", largura-utf8.RuneCountInString(texto))
+}
+
+func centralizar(texto string, largura int) string {
+	n := utf8.RuneCountInString(texto)
+	if n >= largura {
+		return alinhar(texto, largura)
 	}
-	return nil, fmt.Errorf("nenhum arquivo de regras encontrado")
+	esquerda := (largura - n) / 2
+	return repetir(" ", esquerda) + texto + repetir(" ", largura-n-esquerda)
+}
+
+func repetir(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	out := make([]byte, 0, len(s)*n)
+	for i := 0; i < n; i++ {
+		out = append(out, s...)
+	}
+	return string(out)
 }

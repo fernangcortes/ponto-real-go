@@ -79,9 +79,7 @@ FORMATO DE SAÍDA (JSON puro):
       "ocor": "",
       "mot": "FERIADO"
     }
-  ],
-  "atrasos": "-09:28",
-  "faltas": 8
+  ]
 }
 
 ATENÇÃO:

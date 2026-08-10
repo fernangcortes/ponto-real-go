@@ -2,6 +2,8 @@ package extraction
 
 import (
 	"fmt"
+
+	"github.com/fernangcortes/ponto-real-go/pkg/apperr"
 )
 
 // ExtractorFactory define a interface para criação de extratores de folha de ponto.
@@ -21,10 +23,10 @@ func NewRegistryExtractorFactory() *RegistryExtractorFactory {
 	}
 
 	// Registrar provedores nativos
-	factory.Register("gemini", func(apiKey string, model string) Extractor {
+	factory.Register(ProviderGemini, func(apiKey string, model string) Extractor {
 		return NewGeminiExtractor(apiKey, model)
 	})
-	factory.Register("openrouter", func(apiKey string, model string) Extractor {
+	factory.Register(ProviderOpenRouter, func(apiKey string, model string) Extractor {
 		return NewOpenRouterExtractor(apiKey, model)
 	})
 
@@ -40,7 +42,7 @@ func (f *RegistryExtractorFactory) Register(provider string, builder func(apiKey
 func (f *RegistryExtractorFactory) Create(provider string, apiKey string, model string) (Extractor, error) {
 	builder, ok := f.registry[provider]
 	if !ok {
-		return nil, fmt.Errorf("provedor de extração não suportado: %s", provider)
+		return nil, fmt.Errorf("%w: %s", apperr.ErrProvedorInvalido, provider)
 	}
 	return builder(apiKey, model), nil
 }

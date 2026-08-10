@@ -2,6 +2,7 @@ package extraction
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -158,7 +159,8 @@ func AlignObservacoes(ts *models.Timesheet) AlignResult {
 				m.weekday, m.dia, weekdayDoDia[m.dia])
 			marcados++
 		}
-		fmt.Printf("[Align] Desalinhamento irregular; %d marcador(es) de fim de semana em conflito\n", marcados)
+		slog.Info("desalinhamento irregular das observações; dias em conflito marcados para conferência",
+			"marcadores_em_conflito", marcados)
 		return res
 	}
 
@@ -183,7 +185,7 @@ func AlignObservacoes(ts *models.Timesheet) AlignResult {
 
 	res.DeslocamentoAplicado = melhorShift
 	res.Corrigido = true
-	fmt.Printf("[Align] Observações realinhadas em %+d dia(s) via âncora de fim de semana\n", melhorShift)
+	slog.Info("observações realinhadas pela âncora de fim de semana", "deslocamento_dias", melhorShift)
 	return res
 }
 

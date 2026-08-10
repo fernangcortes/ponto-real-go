@@ -1,0 +1,33 @@
+# Fim de linha
+#
+# O repositório guarda tudo em LF. No Windows a cópia de trabalho fica em CRLF
+# por causa do core.autocrlf, e isso é esperado — mas depender da configuração
+# local de cada máquina significa que um clone com autocrlf=false gravaria CRLF
+# no repositório e sujaria o diff de todo mundo. As regras abaixo tiram a
+# decisão das mãos da configuração local.
+#
+# Consequência prática: `gofmt -l` rodado no Windows lista TODOS os arquivos,
+# porque enxerga o CRLF da cópia de trabalho. Isso é ruído local, não erro. A
+# checagem de formatação que vale é a do CI, que roda em Linux sobre LF.
+
+* text=auto eol=lf
+
+*.go     text eol=lf
+*.js     text eol=lf
+*.css    text eol=lf
+*.html   text eol=lf
+*.json   text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.md     text eol=lf
+*.sum    text eol=lf
+*.mod    text eol=lf
+
+# Binários: nunca converter
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.webp   binary
+*.pdf    binary
+*.exe    binary
+*.zip    binary

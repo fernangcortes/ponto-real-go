@@ -9,6 +9,10 @@ server
 # Dados locais
 data/
 settings.json
+justificativas.json
+
+# Dependências do lint do front-end (o app não tem build)
+node_modules/
 
 # IDE
 .idea/

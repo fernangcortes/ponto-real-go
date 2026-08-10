@@ -524,6 +524,45 @@ input.readonly:focus {
 }
 
 /* ============================================
+   Arrastar horário entre colunas
+   ============================================
+
+   Um horário lido da ficha é somente-leitura, mas PODE mudar de coluna: é
+   assim que se corrige um batimento que a extração pôs no lugar errado — o
+   13:45 de uma dispensa cumprida, lido como retorno do almoço quando era a
+   saída do expediente.
+
+   Isso não se descobre sozinho. O cursor de mão aberta é o que distingue
+   "mover" de "editar", e a borda tracejada diz que o valor está solto na
+   coluna, em oposição à borda sólida de quem se digita. */
+
+.draggable-time {
+    cursor: grab;
+}
+
+.draggable-time:active {
+    cursor: grabbing;
+}
+
+/* Especificidade acima de `input.readonly:hover`, que zera borda e fundo. */
+input.readonly.draggable-time:hover {
+    border: 1px dashed var(--accent);
+    background: var(--accent-bg);
+}
+
+/* Durante o arrasto, os campos que aceitam receber o horário se anunciam.
+   Sem isso não há como saber, no meio do gesto, onde é possível soltar. */
+body.arrastando-horario .main-table input[type="time"] {
+    border: 1px dashed var(--border-color);
+}
+
+body.arrastando-horario .main-table input[type="time"]:hover {
+    border: 1px solid var(--accent);
+    background: var(--accent-bg);
+    box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.15);
+}
+
+/* ============================================
    Columns
    ============================================ */
 
@@ -1225,7 +1264,31 @@ input.just-input:focus {
     background: rgba(38, 166, 154, 0.08);
 }
 
-/* Carga horária do dia (minutos), usada no expediente reduzido */
+/* Jornada exigida no dia, usada em dispensa e expediente reduzido.
+   A jornada vem do ato que concedeu o dia, então é informada pelo usuário:
+   atalhos para os casos comuns e campo livre para o resto. */
+.carga-controle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+}
+
+.carga-select {
+    font-size: 10px;
+    padding: 2px 4px;
+    border: 1px solid #26a69a;
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.carga-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
 .carga-input {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
@@ -1312,6 +1375,80 @@ input.just-input:focus {
     font-size: 11px;
     color: var(--text-muted);
     font-style: italic;
+}
+
+/* ============================================
+   Biblioteca de frases de justificativa
+   ============================================ */
+
+.biblioteca-box {
+    margin-top: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    font-size: 12px;
+}
+
+.biblioteca-box > summary {
+    padding: 7px 10px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-weight: 600;
+    user-select: none;
+}
+
+.biblioteca-hint {
+    font-weight: 400;
+    font-style: italic;
+    color: var(--text-muted);
+}
+
+.biblioteca-ajuda {
+    margin: 0;
+    padding: 0 10px 8px 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.biblioteca-ajuda code,
+.biblioteca-ajuda kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--accent-bg);
+    color: var(--text-secondary);
+}
+
+.biblioteca-lista {
+    margin: 0;
+    padding: 0 10px 8px 10px;
+    list-style: none;
+}
+
+.biblioteca-lista li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    border-top: 1px solid var(--border-color);
+}
+
+/* A frase pode ser longa; ela cede o espaço, o botão de apagar não. */
+.biblioteca-texto {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+
+.biblioteca-vazia {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: 4px 0;
 }
 
 /* Row styles for feriado/folga/convocação days */
