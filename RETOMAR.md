@@ -5,10 +5,15 @@ Ponto de partida para uma nova sessão. O detalhe de tudo que foi feito está em
 
 ## Estado
 
-Branch **`refatoracao`**, 8 commits à frente da `master`, árvore limpa.
-**Nada foi mergeado ainda.**
+Branch **`refatoracao`**, 13 commits à frente da `master` (12 de código, mais
+este registro), árvore limpa.
+**Nada foi mergeado ainda**, mas a branch **já está no GitHub** desde
+2026-08-10 (`origin/refatoracao`), então o CI enfim roda nela.
 
 ```
+943afbb fix: não deixar o desvio do minuto redondo encurtar o almoço
+88b3f19 fix: impedir que a entrada da manhã seja inventada de madrugada
+2edb5a4 docs: registrar o hash do commit anterior no RETOMAR
 ca0fd34 feat: dar voz ao dia de dispensa cumprida no documento SEI
 40975df docs: adicionar RETOMAR.md com o estado e as armadilhas do projeto
 995d552 fix: permitir apagar um horário e manter o aviso de jornada em dia
@@ -23,7 +28,7 @@ e4e612e chore: normalizar fim de linha e fixar a regra no .gitattributes
 Verificação (tudo verde no último commit):
 
 ```bash
-go build ./... && go vet ./... && go test ./...   # 194 testes
+go build ./... && go vet ./... && go test ./...   # 204 testes
 golangci-lint run ./...                            # 0 issues
 npm run lint && npm test                           # 76 testes
 ```
@@ -33,21 +38,76 @@ npm run lint && npm test                           # 76 testes
 1. **Conferir os dois meses no app.** Muita regra de cálculo mudou — férias,
    dispensa, saldo oficial, e agora as duas seções do documento SEI. Ele é quem
    sabe se os números batem com a realidade.
-2. **Mergear**, se estiver bom: `git checkout master && git merge refatoracao`
-3. **Dar push** — o `-race` nunca rodou nesta máquina (falta compilador C) e só
-   é exercitado de verdade no CI.
+2. **Olhar o CI da branch.** O `-race` nunca rodou nesta máquina (falta
+   compilador C) e só agora é exercitado de verdade, depois do push.
+3. **Mergear**, se estiver bom: `git checkout master && git merge refatoracao`
 
 ## O que falta, em ordem de valor
 
 ### 1. Reescrever o `RulesAdjuster` (item 4.5 do plano)
-`pkg/extraction/rules_adjuster.go`, função `adjustDay`: cascata de 13 `if`
-cobrindo combinações de batimentos, terminando num fallback que registra
-*"combinação não prevista"*. É o código que **inventa horários que vão para um
-documento assinado por um servidor público** — o último ponto do sistema onde
-algo pode sair arbitrário.
+`pkg/extraction/rules_adjuster.go`, função `adjustDay`: 12 combinações de
+batimentos nomeadas mais um fallback que registra *"combinação não prevista"*.
+É o código que **inventa horários que vão para um documento assinado por um
+servidor público** — o último ponto do sistema onde algo pode sair arbitrário.
 
 `janelaSlot` e `reinterpretarPontos`, no mesmo arquivo, já mostram o caminho
-declarativo. Os testes de `pkg/extraction` protegem a reescrita.
+declarativo.
+
+Em 2026-08-10 o terreno foi mapeado antes de qualquer reescrita. O que se sabe
+agora foi **medido, não deduzido**:
+
+**Os 13 caminhos são 4 decisões.** Um gerador por coluna, reescrito de 3 a 6
+vezes, com constantes que divergiram entre as cópias por acidente:
+
+| O que é inventado | Aparece em | Cópias idênticas | Divergência entre elas |
+|---|---|---|---|
+| saída da tarde | 6 ramos | 3 iguais caractere a caractere | piso de 3h, de 2h, ou nenhum |
+| entrada da manhã | 6 ramos | 3 iguais | um estava sem a trava das 07:00 |
+| retorno do almoço | 6 ramos | 3 iguais | só um é diferente de verdade |
+| saída para o almoço | 8 ramos | 4 iguais | só um é diferente; a cópia do fallback é código morto |
+
+Sobram **5 regras realmente distintas** em 13 caminhos.
+
+**O fallback é alcançável** — roda 114 vezes na própria grade de testes. Caem
+nele um único batimento entre 10:31 e 13:30, ou dois batimentos entre 10:31 e
+16:00 (uns 48 mil pares de horários). Não é caso exótico: é o dia em que o
+servidor bateu na saída e na volta do almoço e esqueceu as duas pontas. O log
+diz *"combinação não prevista"*, o que faz parecer defeito o que é rotina.
+
+**Nos dados reais do usuário, só 3 dos 13 ramos já rodaram**, em 6 dias de
+junho e julho: "falta a entrada" (01/06), "falta a saída" (02, 17 e 22/06) e
+"falta a saída para o almoço" (16/06 e 10/07). O risco está concentrado neles.
+
+**Os testes NÃO protegem a reescrita.** Esta é a descoberta que muda o plano.
+Todos os 13 ramos são executados, mas 11 só pela grade exaustiva
+(`TestHorariosGeradosSempreValidos`), que confere três invariantes — nada passa
+das 23:59, ordem cronológica, nenhum batimento real some — e **nunca olha o
+número gerado**.
+
+> Prova por mutação: somar 45 minutos a toda saída inventada pelo ramo "falta a
+> saída" deixa `go test ./...` inteiramente verde. São 2h15 a mais em junho, no
+> documento assinado, sem nenhum portão reclamar.
+
+**Portanto o primeiro passo da reescrita não é reescrever.** É travar os
+valores de hoje: semente fixa no sorteio (`randBetween` usa o `math/rand`
+global, então não há como reproduzir uma execução) e snapshot dos 13 ramos. Sem
+isso a suíte fica verde tanto para o certo quanto para o errado, e a reescrita
+é inverificável.
+
+Dois defeitos dessa mesma família já foram corrigidos e têm teste. A reescrita
+não pode perdê-los:
+
+- **Entrada de madrugada** (`88b3f19`). O ramo do dia em que só o retorno do
+  almoço foi batido era o único sem a trava das 07:00: um retorno às 11:30
+  puxava a entrada para 05:56. A manhã tem de ser **recontada depois da trava**,
+  senão a tarde compensa uma manhã que não aconteceu e o dia fecha com uma hora
+  a mais do que o servidor trabalhou.
+- **Almoço abaixo do mínimo legal** (`943afbb`). O desvio dos minutos redondos
+  era aplicado como lei e comia o intervalo por cima, gerando almoço de 58
+  minutos — abaixo do mínimo que `almocoGerado` promete no próprio comentário.
+  Agora `avoidRoundMinsEntre` recebe a faixa em que pode andar e aceita ficar
+  redondo quando nada cabe. **A regra é preferência, não lei**: o redondo
+  aparece em 0,31% dos horários gerados.
 
 **Merecia uma sessão dedicada, com contexto limpo.**
 
@@ -106,6 +166,13 @@ direto e roda o dia real por `deWire` → `classifyDay` → `saldoDoDia`. Prova 
 os dados dele, sem escrever nada. Atenção: `getJustTemplate()` usa
 `localStorage`, então passe o `template` explicitamente às funções de
 `justificativa.js` fora do navegador.
+
+**Cobertura de linha engana no `rules_adjuster.go`.** No `-coverprofile`, o
+bloco que começa na linha do `if` conta as **avaliações da condição**, não as
+execuções do corpo — pegue o bloco cujo fim é maior que o início, senão todo
+ramo parece rodar milhares de vezes. E cobertura ali não é proteção: para saber
+se a suíte segura mesmo, **mude um número de propósito e veja se ela percebe**.
+Foi assim que se descobriu que não segurava.
 
 **`gofmt -l` no Windows lista todos os arquivos.** É o CRLF da cópia de
 trabalho, não erro de formatação. Para checar de verdade, converta para LF numa
