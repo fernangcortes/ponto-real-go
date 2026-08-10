@@ -9,7 +9,7 @@ Branch **`refatoracao`**, 8 commits à frente da `master`, árvore limpa.
 **Nada foi mergeado ainda.**
 
 ```
-<novo>  feat: dar voz ao dia de dispensa cumprida no documento SEI
+ca0fd34 feat: dar voz ao dia de dispensa cumprida no documento SEI
 40975df docs: adicionar RETOMAR.md com o estado e as armadilhas do projeto
 995d552 fix: permitir apagar um horário e manter o aviso de jornada em dia
 fc485ae docs: registrar o plano de refatoração e o que foi executado
