@@ -317,6 +317,17 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 		morningWork := randBetween(220, 260)
 		e1 = s1 - morningWork
 		e1 = avoidRoundMins(e1)
+		if e1 < 7*60 {
+			// Mesma trava dos demais geradores de entrada: nunca inventar um
+			// início de expediente de madrugada. Um retorno de almoço cedo —
+			// 11:30, o mais cedo que chega aqui — puxava a entrada para 05:56.
+			//
+			// A manhã tem de ser recontada a partir do horário travado: sem
+			// isso a tarde compensaria uma manhã que não aconteceu, e o dia
+			// fecharia com mais horas do que o servidor trabalhou.
+			e1 = 7*60 + randBetween(2, 28)
+			morningWork = s1 - e1
+		}
 
 		afternoonNeeded := carga - morningWork + randBetween(-5, 15)
 		if afternoonNeeded < 120 {

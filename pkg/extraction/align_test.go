@@ -352,6 +352,76 @@ func TestHorariosGeradosSempreValidos(t *testing.T) {
 	}
 }
 
+// TestEntradaGeradaNuncaEhDeMadrugada trava o piso das 07:00 para toda entrada
+// da manhã INVENTADA — batimento real do servidor é intocável, seja qual for a
+// hora.
+//
+// O piso existia em todos os geradores de entrada menos num: o do dia em que só
+// o retorno do almoço foi batido. Ali um único ponto às 11:33 produzia entrada
+// às 06:01, horário que seguiria para um documento assinado sem que nada
+// reclamasse: a ordem cronológica está correta e nenhum ponto real sumiu, que
+// era tudo o que a suíte conferia.
+func TestEntradaGeradaNuncaEhDeMadrugada(t *testing.T) {
+	adjuster := NewRulesAdjuster(rules.NewEngineWithDefaults())
+
+	const pisoManha = 7 * 60
+
+	verifica := func(t *testing.T, campos [4]string) {
+		t.Helper()
+		out := adjuster.Adjust(&models.Timesheet{
+			MesAno: "06/2026",
+			Dias: []models.DayRecord{{
+				Dia: 10, DiaSemana: "Qua",
+				Entrada1: campos[0], Saida1: campos[1],
+				Entrada2: campos[2], Saida2: campos[3],
+			}},
+		}).Dias[0]
+
+		if len(out.Bloqueio) != 4 || out.Bloqueio[0] != 0 {
+			return // entrada real, ou dia que o adjuster não toca
+		}
+		if e1 := parseMins(out.Entrada1); e1 > 0 && e1 < pisoManha {
+			t.Fatalf("batimentos %v geraram início de expediente de madrugada: %s %s %s %s",
+				campos, out.Entrada1, out.Saida1, out.Entrada2, out.Saida2)
+		}
+	}
+
+	// O caso que revelou o defeito.
+	t.Run("um ponto às 11:33 no retorno do almoço", func(t *testing.T) {
+		for i := 0; i < 200; i++ {
+			verifica(t, [4]string{"", "", "11:33", ""})
+		}
+	})
+
+	// Um único batimento, em qualquer coluna, em qualquer minuto do dia.
+	t.Run("um ponto em qualquer minuto", func(t *testing.T) {
+		for col := 0; col < 4; col++ {
+			for m := 1; m <= fimDoDia; m++ {
+				var campos [4]string
+				campos[col] = formatMins(m)
+				for i := 0; i < 4; i++ {
+					verifica(t, campos)
+				}
+			}
+		}
+	})
+
+	// As demais combinações, na mesma grade do teste exaustivo.
+	t.Run("dois e três batimentos", func(t *testing.T) {
+		horarios := []string{"", "06:15", "08:30", "10:29", "11:30", "12:33",
+			"13:02", "15:59", "16:00", "18:40", "20:06", "23:40"}
+		for _, a := range horarios {
+			for _, b := range horarios {
+				for _, c := range horarios {
+					for _, e := range horarios {
+						verifica(t, [4]string{a, b, c, e})
+					}
+				}
+			}
+		}
+	})
+}
+
 func TestAvisoAntigoNaoPersisteQuandoResolvido(t *testing.T) {
 	// Folha alinhada, mas carregando um aviso gravado por uma versão anterior.
 	ts := junho2026(map[int]string{
