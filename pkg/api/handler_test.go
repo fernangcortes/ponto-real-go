@@ -14,10 +14,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fernangcortes/ponto-real-go/pkg/apperr"
 	"github.com/fernangcortes/ponto-real-go/pkg/extraction"
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
+	"github.com/fernangcortes/ponto-real-go/pkg/repository"
 	"github.com/fernangcortes/ponto-real-go/pkg/rules"
 	"github.com/fernangcortes/ponto-real-go/pkg/service"
 )
@@ -140,11 +142,39 @@ func (s *fakeSettingsRepo) gravacoes() []models.AppSettings {
 
 // --- Montagem ---
 
+// fakeJustificativasRepo guarda a biblioteca em memória. Tem lock pelo mesmo
+// motivo do fakeSettingsRepo: o store é lido e escrito por goroutines
+// diferentes, e um dublê sem sincronização faria o -race acusar o teste.
+type fakeJustificativasRepo struct {
+	mu      sync.Mutex
+	atual   models.BibliotecaJustificativas
+	saveErr error
+}
+
+func (j *fakeJustificativasRepo) Load() (models.BibliotecaJustificativas, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.atual, nil
+}
+
+func (j *fakeJustificativasRepo) Save(b models.BibliotecaJustificativas) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.saveErr != nil {
+		return j.saveErr
+	}
+	b.Frases = repository.NormalizarFrases(b.Frases)
+	b.UpdatedAt = time.Now()
+	j.atual = b
+	return nil
+}
+
 type harness struct {
-	srv      http.Handler
-	repo     *fakeRepo
-	settings *fakeSettingsRepo
-	factory  *fakeFactory
+	srv            http.Handler
+	repo           *fakeRepo
+	settings       *fakeSettingsRepo
+	justificativas *fakeJustificativasRepo
+	factory        *fakeFactory
 }
 
 func newHarness(t *testing.T, settings models.AppSettings, ext extraction.Extractor) *harness {
@@ -156,12 +186,16 @@ func newHarness(t *testing.T, settings models.AppSettings, ext extraction.Extrac
 
 	repo := newFakeRepo()
 	settingsRepo := &fakeSettingsRepo{settings: settings}
+	justRepo := &fakeJustificativasRepo{}
 	factory := &fakeFactory{ext: ext}
 
 	svc := service.NewTimesheetService(rules.NewEngineWithDefaults(), repo, factory)
-	h := NewHandler(svc, settingsRepo)
+	h := NewHandler(svc, settingsRepo, justRepo)
 
-	return &harness{srv: BuildHandler(h), repo: repo, settings: settingsRepo, factory: factory}
+	return &harness{
+		srv: BuildHandler(h), repo: repo, settings: settingsRepo,
+		justificativas: justRepo, factory: factory,
+	}
 }
 
 func (h *harness) do(t *testing.T, method, path string, body io.Reader, contentType string) *httptest.ResponseRecorder {
@@ -842,4 +876,105 @@ func TestProcessRespeitaEscolhaManualDoTipoDeDia(t *testing.T) {
 	if got := resp.Timesheet.Dias[0].Tipo; got != models.DayTypeCompleto {
 		t.Errorf("Tipo = %q; a escolha \"util\" do usuário deveria derrubar a detecção de dispensa", got)
 	}
+}
+
+// --- Biblioteca de justificativas ---
+
+func TestJustificativasComecaVaziaENuncaDevolveNull(t *testing.T) {
+	h := newHarness(t, models.AppSettings{}, nil)
+
+	rec := h.do(t, "GET", "/api/justificativas", nil, "")
+	exigirStatus(t, rec, http.StatusOK)
+
+	// O front-end itera direto sobre a lista: `null` quebraria a montagem do
+	// seletor na primeira execução, quando ainda não há nenhuma frase.
+	if !strings.Contains(rec.Body.String(), `"frases":[]`) {
+		t.Errorf("esperava lista vazia explícita, veio %s", rec.Body.String())
+	}
+}
+
+func TestJustificativasRoundTripPelaAPI(t *testing.T) {
+	h := newHarness(t, models.AppSettings{}, nil)
+
+	payload := `{"frases":[
+		{"texto":"Cumpri a jornada de {jornada} exigida pelo ato.","tipo":"dispensa","usos":2},
+		{"texto":"Compareci a reuniao externa.","tipo":"util"}
+	]}`
+	rec := h.do(t, "POST", "/api/justificativas", strings.NewReader(payload), "application/json")
+	exigirStatus(t, rec, http.StatusOK)
+
+	rec = h.do(t, "GET", "/api/justificativas", nil, "")
+	var b models.BibliotecaJustificativas
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(b.Frases) != 2 {
+		t.Fatalf("esperava 2 frases, veio %d: %+v", len(b.Frases), b.Frases)
+	}
+	if b.Frases[0].Tipo != "dispensa" || b.Frases[0].Usos != 2 {
+		t.Errorf("metadados perdidos: %+v", b.Frases[0])
+	}
+}
+
+// O POST manda o estado completo: é assim que apagar uma frase funciona.
+func TestJustificativasPostSubstituiAListaInteira(t *testing.T) {
+	h := newHarness(t, models.AppSettings{}, nil)
+
+	h.do(t, "POST", "/api/justificativas",
+		strings.NewReader(`{"frases":[{"texto":"A"},{"texto":"B"}]}`), "application/json")
+	h.do(t, "POST", "/api/justificativas",
+		strings.NewReader(`{"frases":[{"texto":"A"}]}`), "application/json")
+
+	rec := h.do(t, "GET", "/api/justificativas", nil, "")
+	var b models.BibliotecaJustificativas
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(b.Frases) != 1 || b.Frases[0].Texto != "A" {
+		t.Errorf("a frase excluída voltou: %+v", b.Frases)
+	}
+}
+
+func TestJustificativasNormalizaAoSalvar(t *testing.T) {
+	h := newHarness(t, models.AppSettings{}, nil)
+
+	payload := `{"frases":[
+		{"texto":"  Cumpri a jornada.  ","usos":1},
+		{"texto":"cumpri a jornada.","usos":2},
+		{"texto":"   "}
+	]}`
+	rec := h.do(t, "POST", "/api/justificativas", strings.NewReader(payload), "application/json")
+	exigirStatus(t, rec, http.StatusOK)
+
+	var b models.BibliotecaJustificativas
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(b.Frases) != 1 {
+		t.Fatalf("esperava 1 frase após normalizar, veio %d: %+v", len(b.Frases), b.Frases)
+	}
+	if b.Frases[0].Texto != "Cumpri a jornada." {
+		t.Errorf("texto = %q", b.Frases[0].Texto)
+	}
+	if b.Frases[0].Usos != 3 {
+		t.Errorf("usos = %d, esperava a soma das repetidas (3)", b.Frases[0].Usos)
+	}
+}
+
+func TestJustificativasJSONMalformadoDa400(t *testing.T) {
+	h := newHarness(t, models.AppSettings{}, nil)
+
+	rec := h.do(t, "POST", "/api/justificativas", strings.NewReader(`{"frases":`), "application/json")
+	exigirStatus(t, rec, http.StatusBadRequest)
+}
+
+// Falha de gravação não pode ser reportada como sucesso: o front-end usaria a
+// resposta 200 para limpar a fila de pendências e a frase se perderia.
+func TestJustificativasErroDeGravacaoVira500(t *testing.T) {
+	h := newHarness(t, models.AppSettings{}, nil)
+	h.justificativas.saveErr = errors.New("disco cheio")
+
+	rec := h.do(t, "POST", "/api/justificativas",
+		strings.NewReader(`{"frases":[{"texto":"A"}]}`), "application/json")
+	exigirStatus(t, rec, http.StatusInternalServerError)
 }

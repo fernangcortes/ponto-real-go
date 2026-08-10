@@ -11,10 +11,13 @@ import { CONFIG, resolverApiBase, CAMPOS_HORARIO, MESES_NOMES, TIPO_POR_SELECAO,
 import { t2m, m2t, m2tUnsigned, isTimeValid, esc, copiavel, clamp, randBetween, avoidRoundMins } from './js/util.js';
 import {
     classifyDay, tipoSelecionado, isAutoOccurrence, isOccurrenceDay,
-    camposFaltantes, deveAparecerNaOcorrencia, calcularTotais, avisoDeRevisao,
-    isWeekend, deWire, paraWire,
+    camposFaltantes, calcularTotais, avisoDeRevisao,
+    isWeekend, deWire, paraWire, minutosTrabalhados,
 } from './js/domain.js';
-import { montarJustificativa, getJustTemplate, salvarJustTemplate, JUST_TEMPLATE_PADRAO } from './js/justificativa.js';
+import { getJustTemplate, salvarJustTemplate, JUST_TEMPLATE_PADRAO,
+         textoDaJustificativa, semPrefixoDeData, aplicarLacunas,
+         frasesParaOTipo, sugestaoParaOTipo, motivoDoSilencio, LACUNAS } from './js/justificativa.js';
+import { carregarBiblioteca, frasesAtuais, guardarFrase, esquecerFrase } from './js/biblioteca.js';
 
 CONFIG.apiBase = resolverApiBase(window.location);
 
@@ -38,9 +41,68 @@ const removeOcorrencia = (idx) => {
     toggleOcorrenciaManual(idx, false);
 };
 
+// syncJustManual grava o que o usuário escreveu na justificativa do dia.
+//
+// Guarda o texto SEM a data: a frase precisa servir em qualquer mês para poder
+// ser reaproveitada. A data é reposta na exibição.
+//
+// Texto igual ao que a montagem automática produziria não vira texto manual —
+// senão bastava passar o foco pelo campo para congelar a frase, e uma correção
+// futura na regra nunca mais alcançaria aquele dia.
 const syncJustManual = (idx, value) => {
-    daysData[idx].justManual = value;
+    const d = daysData[idx];
+    const faltantes = camposFaltantes(d, classifyDay(d) === 'dispensa');
+    // A frase automática DESTE dia, e não a de um dia genérico: ela depende dos
+    // horários e da jornada do ato, então precisa ser montada com o dia inteiro
+    // — só sem o texto próprio, que é justamente o que estamos comparando.
+    const automatica = textoDaJustificativa({ ...d, justManual: '' }, dataDoDia(d), faltantes);
+
+    const escrito = semPrefixoDeData(value);
+    d.justManual = (escrito && `${dataDoDia(d)} - ${escrito}` !== automatica) ? escrito : '';
     scheduleSave();
+};
+
+// --- Biblioteca de frases ---
+
+// guardarFraseDoDia põe na biblioteca a frase que está no campo daquele dia.
+//
+// Guarda o texto CRU, com as lacunas intactas: é a versão que serve em outro
+// mês. O que está na tela já tem {jornada} resolvido para o dia de hoje, então
+// a fonte é d.justManual e não o valor do input.
+const guardarFraseDoDia = async (idx) => {
+    const d = daysData[idx];
+    const texto = semPrefixoDeData(d.justManual);
+    if (!texto) {
+        showToast('Escreva a justificativa antes de guardá-la.', 'info');
+        return;
+    }
+
+    const gravou = await guardarFrase(CONFIG.apiBase, texto, classifyDay(d));
+    showToast(
+        gravou ? 'Frase guardada na biblioteca.' : 'Frase guardada aqui; será enviada ao servidor depois.',
+        gravou ? 'success' : 'info');
+    renderBibliotecaFrases();
+    updateAll();
+};
+
+// aceitarSugestao é o Tab no campo vazio: escreve a sugestão que estava em
+// cinza. Com o campo já preenchido, o Tab volta a ser navegação — sobrescrever
+// o que a pessoa digitou seria pior que não sugerir nada.
+const aceitarSugestao = (input, idx) => {
+    const sugestao = input.dataset.sugestao;
+    if (!sugestao || input.value.trim()) return false;
+
+    daysData[idx].justManual = sugestao;
+    scheduleSave();
+    updateAll();
+
+    // O render trocou o input; devolver o foco ao novo mantém a edição fluindo.
+    const novo = document.getElementById(input.id);
+    if (novo) {
+        novo.focus();
+        novo.setSelectionRange(novo.value.length, novo.value.length);
+    }
+    return true;
 };
 
 // --- Escolha manual do tipo de dia ---
@@ -329,7 +391,25 @@ document.addEventListener('click', (e) => {
     const remover = e.target.closest('[data-remover-ocorrencia]');
     if (remover) {
         removeOcorrencia(Number(remover.dataset.removerOcorrencia));
+        return;
     }
+
+    const guardar = e.target.closest('[data-guardar-frase]');
+    if (guardar) {
+        guardarFraseDoDia(Number(guardar.dataset.guardarFrase));
+    }
+});
+
+// Tab no campo de justificativa vazio aceita a sugestão em cinza.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab' || e.shiftKey) return;
+
+    const just = e.target.closest('[data-just-manual]');
+    if (!just) return;
+
+    // Só engole o Tab quando ele de fato escreveu algo: sem sugestão, ou com o
+    // campo já preenchido, o Tab tem de continuar navegando entre os campos.
+    if (aceitarSugestao(just, Number(just.dataset.justManual))) e.preventDefault();
 });
 
 // focus/blur não borbulham; focusin/focusout sim.
@@ -559,37 +639,68 @@ const linhaOcorrencia = ({ d, idx, tipo }) => {
     return tr;
 };
 
+// dataDoDia formata o dia como ele aparece no documento: DD/MM/AAAA.
+const dataDoDia = (d) => `${String(d.d).padStart(2, '0')}/${CONFIG.mesAno || '??/????'}`;
+
+// DICA_LACUNAS explica os marcadores no tooltip do campo. Marcador que ninguém
+// sabe que existe não é usado por ninguém.
+const DICA_LACUNAS = 'Marcadores: ' + LACUNAS.map((l) => `${l.marcador} = ${l.ajuda}`).join('; ');
+
 const linhaJustificativa = ({ d, idx, tipo }) => {
     const faltantes = camposFaltantes(d, tipo === 'dispensa');
-    const tr = document.createElement('tr');
+    const frase = textoDaJustificativa(d, dataDoDia(d), faltantes);
 
-    if (faltantes.length > 0) {
-        const dataFmt = `${String(d.d).padStart(2, '0')}/${CONFIG.mesAno || '??/????'}`;
-        const frase = montarJustificativa(dataFmt, faltantes);
-        tr.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" value="${esc(frase)}">
-            ${botaoCopiar(`just_${d.d}`)}</td>`;
-        return tr;
+    // A biblioteca alimenta o datalist ordenada para ESTE dia: as frases do
+    // mesmo tipo primeiro, e entre elas a mais usada. Um datalist por linha
+    // (e não um global) é o que permite ordem diferente por dia.
+    const opcoes = frasesParaOTipo(frasesAtuais(), tipo)
+        .map((f) => `<option value="${esc(f.texto)}">`).join('');
+
+    // Campo vazio por falta de um dado — a jornada do ato — não recebe sugestão:
+    // uma frase com {jornada} resolveria para "a jornada de exigida pelo ato".
+    // Nesse caso o placeholder explica o que falta, em vez de oferecer atalho.
+    const silencio = frase ? '' : motivoDoSilencio(d, tipo);
+
+    // A sugestão vive no placeholder, em cinza, e só entra no campo se o usuário
+    // apertar Tab. Nada é escrito num documento assinado sem um gesto dele.
+    const sugestao = (frase || silencio) ? '' : sugestaoParaOTipo(frasesAtuais(), tipo);
+
+    let dica = 'Descreva o motivo da ocorrência...';
+    if (silencio) dica = silencio;
+    else if (sugestao) {
+        dica = aplicarLacunas(sugestao, { jornada: d.carga, trabalhado: minutosTrabalhados(d), data: dataDoDia(d) });
     }
 
-    // Ocorrência sem horário gerado (ex.: incluída manualmente): não há como
-    // inferir a frase, então o usuário digita.
-    tr.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" placeholder="Descreva o motivo da ocorrência..." value="${esc(d.justManual || '')}" data-just-manual="${idx}">
-        ${botaoCopiar(`just_${d.d}`)}</td>`;
+    // O campo é editável e salvo em TODOS os dias, inclusive quando a frase veio
+    // pronta. Antes o dia com horário gerado recebia a frase automática num
+    // input sem data-just-manual: aceitava a digitação e a descartava no render
+    // seguinte, de modo que era impossível dizer outra coisa num dia ajustado.
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="text" id="just_${d.d}" class="just-input" list="frases_${d.d}"
+            placeholder="${esc(dica)}" value="${esc(frase)}"
+            title="${esc(DICA_LACUNAS)}"
+            data-just-manual="${idx}" data-sugestao="${esc(sugestao)}">
+        <datalist id="frases_${d.d}">${opcoes}</datalist>
+        <button class="icon-btn" title="Guardar esta frase na biblioteca, para reusar nos outros meses" data-guardar-frase="${idx}">★</button>
+        ${botaoCopiar(`just_${d.d}`)}
+        <button class="icon-btn" title="Remover este dia do documento SEI" data-remover-ocorrencia="${idx}">✕</button></td>`;
     return tr;
 };
 
+// renderOcorrencias monta as duas seções do documento.
+//
+// Um critério só, o mesmo do checkbox: marcou, o dia sai nas duas. Não há
+// exceção a lembrar — nem para dispensa, nem para dia sem horário nenhum.
 const renderOcorrencias = (porDia) => {
     const ocorBody = document.getElementById('ocorrenciaBody');
     const justBody = document.getElementById('justificativaBody');
     ocorBody.innerHTML = '';
     justBody.innerHTML = '';
 
-    porDia
-        .filter(({ d, tipo }) => deveAparecerNaOcorrencia(d, tipo))
-        .forEach((item) => {
-            ocorBody.appendChild(linhaOcorrencia(item));
-            justBody.appendChild(linhaJustificativa(item));
-        });
+    porDia.filter(({ d }) => isOccurrenceDay(d)).forEach((item) => {
+        ocorBody.appendChild(linhaOcorrencia(item));
+        justBody.appendChild(linhaJustificativa(item));
+    });
 };
 
 const renderStatusBar = (totais) => {
@@ -743,8 +854,11 @@ const renderTables = () => {
                 if (!v && (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao')) return `<span class="empty-time">——:——</span>`;
                 if (!v && d.dayTypeOverride !== 'dispensa' && isWeekend(d) && !d.mot) return `<span class="empty-time">——:——</span>`;
                 if (!v && d.dayTypeOverride !== 'dispensa' && d.saldo === '-08:00' && !d.mot && !isWeekend(d)) return `<span class="empty-time">——:——</span>`;
-                if (!v) return `<input type="time" id="m_${f}_${d.d}" value="" data-dia="${i}" data-campo="${f}">`;
-                return `<input type="time" id="m_${f}_${d.d}" value="${v}" ${isOrig ? `class="readonly draggable-time"` : `${canDrag} class="draggable-time"`} ${canDrag} data-dia="${i}" data-campo="${f}">`;
+                if (!v) return `<input type="time" id="m_${f}_${d.d}" value="" title="Digite o horário, ou arraste um horário de outra coluna para cá." data-dia="${i}" data-campo="${f}">`;
+                const dica = isOrig
+                    ? 'Horário lido da ficha: não se digita por cima, mas ARRASTE para mudar de coluna.'
+                    : 'Horário gerado pelo sistema: pode ser digitado, ou arrastado para outra coluna.';
+                return `<input type="time" id="m_${f}_${d.d}" value="${v}" title="${esc(dica)}" ${isOrig ? `class="readonly draggable-time"` : `${canDrag} class="draggable-time"`} ${canDrag} data-dia="${i}" data-campo="${f}">`;
             };
 
             const tdSaldo = `<td id="m_saldo_${d.d}" class="saldo-cell" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;" title="Clique nos valores para copiar">${renderSaldoCellContent(d, null)}</td>`;
@@ -832,6 +946,9 @@ document.getElementById('tablesContainer').addEventListener('dragstart', (e) => 
         e.dataTransfer.setData('text/plain', e.target.id);
         e.dataTransfer.effectAllowed = 'move';
         e.target.style.opacity = '0.4';
+        // Acende os campos que aceitam receber o horário. Sem isso não há como
+        // saber, no meio do arrasto, que soltar é uma operação possível.
+        document.body.classList.add('arrastando-horario');
     }
 });
 
@@ -850,6 +967,10 @@ document.getElementById('tablesContainer').addEventListener('dragleave', (e) => 
 });
 
 document.getElementById('tablesContainer').addEventListener('dragend', (e) => {
+    // Apagar as luzes sai do dragend e não do drop: soltar fora de um campo
+    // válido, ou apertar Esc, cancela o arrasto sem passar pelo drop — e a
+    // tabela ficaria acesa até o próximo render.
+    document.body.classList.remove('arrastando-horario');
     if (e.target.tagName === 'INPUT') {
         e.target.style.opacity = '1';
     }
@@ -946,6 +1067,45 @@ const loadVersion = async () => {
     }
 };
 loadVersion();
+
+// --- Biblioteca de justificativas ---
+
+// renderBibliotecaFrases desenha a lista de frases guardadas, com o ✕ que
+// apaga. Sem um lugar para ver e apagar, a biblioteca só cresce.
+const renderBibliotecaFrases = () => {
+    const lista = document.getElementById('bibliotecaFrases');
+    if (!lista) return;
+
+    const frases = frasesAtuais();
+    if (!frases.length) {
+        lista.innerHTML = `<li class="biblioteca-vazia">Nenhuma frase guardada. Use o ★ ao lado de uma justificativa para guardá-la aqui.</li>`;
+        return;
+    }
+
+    lista.innerHTML = frases.map((f) => `<li>
+        <span class="biblioteca-texto" title="${esc(f.tipo ? `Guardada num dia de tipo "${f.tipo}"` : 'Sem tipo de dia registrado')}">${esc(f.texto)}</span>
+        <button class="icon-btn" title="Apagar esta frase da biblioteca" data-esquecer-frase="${esc(f.texto)}">✕</button>
+    </li>`).join('');
+};
+
+document.addEventListener('click', (e) => {
+    const esquecer = e.target.closest('[data-esquecer-frase]');
+    if (!esquecer) return;
+
+    esquecerFrase(CONFIG.apiBase, esquecer.dataset.esquecerFrase).then((gravou) => {
+        if (!gravou) showToast('Apagada aqui; o servidor será atualizado depois.', 'info');
+        renderBibliotecaFrases();
+        if (daysData.length > 0) updateAll();
+    });
+});
+
+// Buscar a biblioteca no início da sessão, sem bloquear a tela: a lista aparece
+// no seletor assim que chega, e enquanto isso a folha já pode ser conferida. Se
+// o servidor não responder, o cache local assume — o módulo trata disso.
+carregarBiblioteca(CONFIG.apiBase).then(() => {
+    renderBibliotecaFrases();
+    if (daysData.length > 0) updateAll();
+});
 
 // --- Inicialização ---
 const hdrInput = document.getElementById('headerMonthInput');
@@ -2244,65 +2404,37 @@ const generateSeiHtml = () => {
     const cNome = document.getElementById('seiChefiaNome').value;
     const cLotacao = document.getElementById('seiChefiaLotacao').value;
 
-    // Filtrar dias com ocorrências: automáticas (dias ajustados, onde d.o
-    // possui 0) e/ou incluídas/excluídas manualmente via d.ocorrenciaManual.
-    const occurrences = daysData.filter(d => {
-        if (!isOccurrenceDay(d)) return false;
-        const tipo = classifyDay(d);
-        const isDispensa = tipo === 'dispensa';
-        const isManual = d.ocorrenciaManual === true;
-        const bloqueio = d.o || [1, 1, 1, 1];
-        const fields = ['e1', 's1', 'e2', 's2'];
-        const hasEditedFields = (isDispensa && !isManual)
-            ? fields.some((f, fi) => bloqueio[fi] === 0 && isTimeValid(d[f]))
-            : true;
-        return hasEditedFields;
-    });
+    // O MESMO predicado que monta as tabelas da tela. Enquanto a regra estava
+    // reescrita aqui, o documento e a tela podiam discordar sobre quem entra —
+    // e é o documento que vai assinado.
+    const noDocumento = daysData.filter(isOccurrenceDay);
+
+    const celula = (conteudo) =>
+        `<td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${conteudo}</td>`;
 
     let ocorrenciasRowsHtml = '';
     let justificativasHtml = '';
 
-    occurrences.forEach(d => {
-        const diaFmt = String(d.d).padStart(2, '0');
-        const [mm, yyyy] = CONFIG.mesAno ? CONFIG.mesAno.split('/') : ['??', '????'];
-        const dataFull = `${diaFmt}/${mm}/${yyyy}`;
+    noDocumento.forEach(d => {
+        const horarios = CAMPOS_HORARIO.map(f => celula(esc(d[f]) || '&nbsp;')).join('');
+        ocorrenciasRowsHtml += `<tr>${celula(esc(dataDoDia(d)))}${horarios}</tr>`;
 
-        ocorrenciasRowsHtml += `<tr>
-            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${dataFull}</td>
-            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.e1 || '&nbsp;'}</td>
-            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.s1 || '&nbsp;'}</td>
-            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.e2 || '&nbsp;'}</td>
-            <td style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 6px;">${d.s2 || '&nbsp;'}</td>
-        </tr>`;
-
-        // Gerar frase de justificativa para o dia
-        const fields = ['e1', 's1', 'e2', 's2'];
-        const fields_names = ['a entrada', 'a saída do almoço', 'a entrada do almoço', 'a saída'];
-        const faltantes = [];
-        const tipo = classifyDay(d);
-        const isDispensa = tipo === 'dispensa';
-        const bloqueio = d.o || [1, 1, 1, 1];
-
-        fields.forEach((f, fi) => {
-            if (bloqueio[fi] === 0) {
-                // Dispensa: só listar se o campo foi preenchido pelo usuário
-                if (!isDispensa || isTimeValid(d[f])) {
-                    faltantes.push(fields_names[fi]);
-                }
-            }
-        });
-
-        if (faltantes.length > 0) {
-            const frase = montarJustificativa(dataFull, faltantes);
-            justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${frase}</p>`;
-        } else if ((d.justManual || '').trim()) {
-            // Ocorrência incluída manualmente: usa o texto digitado pelo usuário.
-            justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${dataFull} - ${d.justManual.trim()}</p>`;
-        }
+        // A justificativa é a única com filtro extra: um dia sem nada escrito
+        // vira um parágrafo em branco no documento, e parágrafo em branco não é
+        // justificativa de coisa nenhuma. Na TELA ele continua aparecendo, com o
+        // campo vazio esperando o texto.
+        const faltantes = camposFaltantes(d, classifyDay(d) === 'dispensa');
+        const frase = textoDaJustificativa(d, dataDoDia(d), faltantes);
+        if (!frase) return;
+        justificativasHtml += `<p style="margin: 0 0 6px 0; font-family: Arial, sans-serif; font-size: 12px;">${esc(frase)}</p>`;
     });
 
-    if (occurrences.length === 0) {
+    // Cada seção tem o seu vazio: um mês pode ter justificativa sem nenhuma
+    // linha de horário a declarar.
+    if (!ocorrenciasRowsHtml) {
         ocorrenciasRowsHtml = `<tr><td colspan="5" style="border: 1px solid #000000; text-align: center; font-family: Arial, sans-serif; font-size: 12px; padding: 10px; color: #888;">Nenhuma ocorrência gerada para este mês</td></tr>`;
+    }
+    if (!justificativasHtml) {
         justificativasHtml = `<p style="margin: 0; font-family: Arial, sans-serif; font-size: 12px; color: #888;">Nenhuma justificativa necessária</p>`;
     }
 

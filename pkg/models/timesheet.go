@@ -154,6 +154,35 @@ type AppSettings struct {
 	OpenRouterAPIKey string `json:"open_router_api_key,omitempty"`
 }
 
+// Justificativa é uma frase da biblioteca do usuário, guardada para ser
+// reaproveitada em qualquer mês.
+//
+// O texto é guardado SEM a data — "10/07/2026 - " é reposto na hora de usar.
+// Uma frase presa a uma data não serve para o mês seguinte, que é justamente o
+// motivo de existir uma biblioteca.
+type Justificativa struct {
+	Texto string `json:"texto"`
+
+	// Tipo é o tipo de dia em que a frase foi salva ("dispensa", "util",
+	// "reduzido"). Não restringe nada: serve para ordenar a lista, pondo as
+	// frases de dispensa à frente quando o dia é de dispensa.
+	Tipo string `json:"tipo,omitempty"`
+
+	// Usos conta quantas vezes a frase foi aplicada. Decide qual delas vira a
+	// sugestão do dia quando há mais de uma para o mesmo tipo.
+	Usos int `json:"usos,omitempty"`
+}
+
+// BibliotecaJustificativas é a coleção inteira, como vai e volta do disco.
+//
+// A gravação é sempre da lista completa, nunca de um item. Isso torna a
+// exclusão trivial (a frase simplesmente não está na lista que chegou) e
+// dispensa identificador por frase — o estado É a lista.
+type BibliotecaJustificativas struct {
+	Frases    []Justificativa `json:"frases"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
 // ValidateResponse é a resposta da validação de um dia.
 type ValidateResponse struct {
 	Valid   bool     `json:"valid"`

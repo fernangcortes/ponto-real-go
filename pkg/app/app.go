@@ -27,6 +27,10 @@ type Config struct {
 	DataDir string
 	// SettingsFile é o nome do arquivo de configurações (resolvido ao lado do executável).
 	SettingsFile string
+	// JustificativasFile é o nome do arquivo da biblioteca de frases, também
+	// resolvido ao lado do executável. Fora de DataDir de propósito: lá todo
+	// .json é lido como um mês salvo.
+	JustificativasFile string
 	// RulesPath, se preenchido, sobrescreve conscientemente as regras embutidas
 	// no binário. Vazio — o caso normal — usa as embutidas.
 	RulesPath string
@@ -42,9 +46,10 @@ type Config struct {
 // ConfigFromEnv monta a configuração a partir do ambiente, com os padrões do projeto.
 func ConfigFromEnv() Config {
 	return Config{
-		DataDir:      "data",
-		SettingsFile: "settings.json",
-		RulesPath:    os.Getenv("PONTO_REAL_RULES"),
+		DataDir:            "data",
+		SettingsFile:       "settings.json",
+		JustificativasFile: "justificativas.json",
+		RulesPath:          os.Getenv("PONTO_REAL_RULES"),
 		// No Vercel o disco é efêmero: gravar não dá erro, mas o arquivo some
 		// no próximo request.
 		Persistencia: os.Getenv("VERCEL") != "1",
@@ -88,20 +93,23 @@ func BuildServer(cfg Config, estaticos fs.FS) Servidor {
 
 func novoHandler(cfg Config) (*api.Handler, models.RulesConfig) {
 	engine := carregarRegras(cfg.RulesPath)
-	timesheetRepo, settingsRepo := repositorios(cfg)
+	timesheetRepo, settingsRepo, justificativasRepo := repositorios(cfg)
 
 	svc := service.NewTimesheetService(engine, timesheetRepo, extraction.NewRegistryExtractorFactory())
-	return api.NewHandler(svc, settingsRepo), engine.Config
+	return api.NewHandler(svc, settingsRepo, justificativasRepo), engine.Config
 }
 
 // repositorios escolhe entre gravar em disco e descartar, conforme o ambiente.
-func repositorios(cfg Config) (repository.TimesheetRepository, repository.SettingsRepository) {
+func repositorios(cfg Config) (repository.TimesheetRepository, repository.SettingsRepository,
+	repository.JustificativasRepository) {
 	if !cfg.Persistencia {
-		slog.Info("persistência desativada: meses e configurações ficam apenas em memória")
-		return repository.NoopTimesheetRepository{}, repository.NoopSettingsRepository{}
+		slog.Info("persistência desativada: meses, configurações e justificativas ficam apenas em memória")
+		return repository.NoopTimesheetRepository{}, repository.NoopSettingsRepository{},
+			repository.NoopJustificativasRepository{}
 	}
 	return repository.NewJSONTimesheetRepository(cfg.DataDir),
-		repository.NewJSONSettingsRepository(cfg.SettingsFile)
+		repository.NewJSONSettingsRepository(cfg.SettingsFile),
+		repository.NewJSONJustificativasRepository(cfg.JustificativasFile)
 }
 
 // carregarRegras usa as regras embutidas, a menos que um caminho externo seja

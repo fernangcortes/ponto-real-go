@@ -257,6 +257,23 @@
             </thead>
             <tbody id="justificativaBody"></tbody>
         </table>
+
+        <!-- Biblioteca de frases: guardadas com o ★ de cada justificativa e
+             reoferecidas em todos os meses seguintes. -->
+        <details class="biblioteca-box">
+            <summary>Frases guardadas <span class="biblioteca-hint">— reaproveitadas nos outros meses</span></summary>
+            <p class="biblioteca-ajuda">
+                Guarde uma justificativa com o <strong>★</strong> ao lado dela. Nos próximos meses a frase
+                aparece na setinha do campo, e no campo vazio a mais usada daquele tipo de dia vem sugerida
+                em cinza — <kbd>Tab</kbd> aceita.
+                <br>
+                Para números que mudam de dia para dia, escreva o marcador em vez do valor:
+                <code>{jornada}</code> (a jornada exigida), <code>{trabalhado}</code> (o total do dia)
+                e <code>{data}</code>. Eles são preenchidos na hora de usar, então a mesma frase serve
+                num dia de 4h e num de 2h.
+            </p>
+            <ul id="bibliotecaFrases" class="biblioteca-lista"></ul>
+        </details>
     </div>
     </div>
     <!-- /appMain -->

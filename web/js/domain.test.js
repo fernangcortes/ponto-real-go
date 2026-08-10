@@ -11,11 +11,15 @@ import { CONFIG, CARGA_DIARIA } from './config.js';
 import { t2m, m2t, m2tUnsigned, parseOrigSaldo, isTimeValid, esc, normalizeObs } from './util.js';
 import {
     classifyDay, detectarTipoDia, tipoSelecionado, isWeekend,
-    isAutoOccurrence, isOccurrenceDay, deveAparecerNaOcorrencia, camposFaltantes,
+    isAutoOccurrence, isOccurrenceDay, camposFaltantes,
     minutosTrabalhados, saldoDoDia, calcularTotais, deWire, paraWire,
     avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA,
 } from './domain.js';
-import { montarJustificativa } from './justificativa.js';
+import {
+    montarJustificativa, semPrefixoDeData, comPrefixoDeData, textoDaJustificativa,
+    aplicarLacunas, duracaoHumana, frasesParaOTipo, sugestaoParaOTipo,
+    justificativaDeAto, motivoDoSilencio,
+} from './justificativa.js';
 
 // Junho de 2026: dia 1 é segunda; 6 e 7 são sábado e domingo.
 const usarJunho2026 = () => { CONFIG.mesAno = '06/2026'; };
@@ -244,13 +248,30 @@ test('escolha manual sobrepõe a detecção nos dois sentidos', () => {
     assert.equal(isOccurrenceDay(original), true, 'inclusão manual vale');
 });
 
-test('dispensa detectada só aparece se o usuário preencheu algum campo', () => {
+// O defeito que motivou a mudança: 03/07/2026, dispensa para curso. Os dois
+// batimentos são reais (09:26 e 13:45), nada foi gerado. O checkbox aparecia
+// marcado e o dia não saía em nenhuma das duas seções do documento — e
+// desmarcar e remarcar devolvia ao estado "automático", que era exatamente o
+// que a tabela ignorava. O dia era inalcançável.
+test('dispensa sem horário gerado entra no documento com o checkbox marcado', () => {
     usarJunho2026();
-    const vazia = dia({ mot: 'DISPENSA', o: [1, 0, 1, 1] });
-    assert.equal(deveAparecerNaOcorrencia(vazia, 'dispensa'), false);
+    const d = dia({ mot: 'DISPENSA', e1: '09:26', e2: '13:45', o: [1, 0, 1, 0] });
 
-    const preenchida = dia({ mot: 'DISPENSA', o: [1, 0, 1, 1], s1: '12:00' });
-    assert.equal(deveAparecerNaOcorrencia(preenchida, 'dispensa'), true);
+    assert.equal(isAutoOccurrence(d), true);
+    assert.equal(isOccurrenceDay(d), true, 'marcado no checkbox É estar no documento');
+});
+
+test('exclusão manual tira o dia do documento', () => {
+    const d = dia({ o: [1, 0, 1, 1], s1: '12:00', ocorrenciaManual: false });
+    assert.equal(isOccurrenceDay(d), false);
+});
+
+// Marcar à mão um dia sem horário gerado nenhum tem de valer: é o caso de
+// declarar uma ocorrência que a ficha não denuncia sozinha.
+test('inclusão manual vale mesmo sem nenhum horário gerado', () => {
+    const d = dia({ o: [1, 1, 1, 1], ocorrenciaManual: true });
+    assert.equal(isAutoOccurrence(d), false, 'a detecção automática deixaria de fora');
+    assert.equal(isOccurrenceDay(d), true, 'a escolha do usuário prevalece');
 });
 
 test('camposFaltantes nomeia só os horários gerados', () => {
@@ -264,6 +285,231 @@ test('montarJustificativa liga os campos com "e"', () => {
 
     const tres = montarJustificativa('01/06/2026', ['a', 'b', 'c'], 'X');
     assert.equal(tres, '01/06/2026 - X a, b e c.');
+});
+
+// A frase é guardada sem a data para poder ser reaproveitada em outro mês.
+test('semPrefixoDeData tira a data e devolve só o texto', () => {
+    assert.equal(semPrefixoDeData('10/07/2026 - Cumpri a jornada.'), 'Cumpri a jornada.');
+    assert.equal(semPrefixoDeData('Cumpri a jornada.'), 'Cumpri a jornada.', 'sem data, não mexe');
+    assert.equal(semPrefixoDeData(''), '');
+    assert.equal(semPrefixoDeData(undefined), '');
+    assert.equal(semPrefixoDeData('01/2026 - x'), '01/2026 - x', 'não é DD/MM/AAAA');
+});
+
+test('comPrefixoDeData não gera linha só com a data', () => {
+    assert.equal(comPrefixoDeData('10/07/2026', 'Cumpri.'), '10/07/2026 - Cumpri.');
+    assert.equal(comPrefixoDeData('10/07/2026', '  '), '', 'texto vazio não vira linha');
+    // Repor a data em cima de um texto que já a tem não a duplica.
+    assert.equal(comPrefixoDeData('10/07/2026', '10/07/2026 - Cumpri.'), '10/07/2026 - Cumpri.');
+});
+
+test('o que o usuário escreveu vence a frase automática', () => {
+    const template = 'O ponto não registrou';
+    const ajustado = dia({ o: [1, 0, 1, 1] });
+
+    assert.equal(
+        textoDaJustificativa(ajustado, '10/07/2026', ['a saída do almoço'], template),
+        '10/07/2026 - O ponto não registrou a saída do almoço.',
+        'sem texto próprio, monta a automática');
+
+    ajustado.justManual = 'Compareci a reunião externa.';
+    assert.equal(
+        textoDaJustificativa(ajustado, '10/07/2026', ['a saída do almoço'], template),
+        '10/07/2026 - Compareci a reunião externa.',
+        'o texto do usuário vence mesmo havendo horário gerado');
+
+    ajustado.justManual = '';
+    assert.equal(
+        textoDaJustificativa(ajustado, '10/07/2026', ['a saída do almoço'], template),
+        '10/07/2026 - O ponto não registrou a saída do almoço.',
+        'apagar o texto devolve a frase automática');
+});
+
+test('dia sem horário gerado e sem texto não produz linha', () => {
+    const d = dia({ o: [1, 0, 1, 0] });
+    assert.equal(textoDaJustificativa(d, '03/07/2026', [], 'X'), '');
+});
+
+// --- frase automática do dia de dispensa ---
+
+// O caso de 03/07/2026: dispensa de 4h, expediente das 09:26 às 13:45. Nada foi
+// inventado, então não há frase de "o ponto não registrou" — mas o dia precisa
+// dizer no documento por que fecha em dia.
+test('dispensa cumprida se explica sozinha', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA', e1: '09:26', s1: '13:45', carga: 240, o: [1, 1, 0, 0] });
+
+    assert.equal(
+        justificativaDeAto(d),
+        'Dia de dispensa: cumpri 4h19 da jornada de 4h exigida pelo ato, com expediente das 09:26 às 13:45.');
+
+    // E chega ao campo pela via normal, sem o usuário digitar nada.
+    assert.equal(
+        textoDaJustificativa(d, '03/07/2026', [], 'X'),
+        '03/07/2026 - Dia de dispensa: cumpri 4h19 da jornada de 4h exigida pelo ato, com expediente das 09:26 às 13:45.');
+});
+
+test('jornada cumprida na medida não diz que houve excedente', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA', e1: '09:00', s1: '13:00', carga: 240, o: [1, 1, 0, 0] });
+
+    assert.match(justificativaDeAto(d), /cumpri integralmente a jornada de 4h/);
+});
+
+// Sem a jornada do ato não há contra o que comparar: afirmar cumprimento seria
+// inventar. O ⚠️ da linha já está pedindo esse número.
+test('sem a jornada informada, o sistema não afirma nada', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA', e1: '09:26', s1: '13:45', o: [1, 1, 0, 0] });
+
+    assert.equal(justificativaDeAto(d), '');
+    assert.equal(textoDaJustificativa(d, '03/07/2026', [], 'X'), '');
+});
+
+// Déficit não ganha desculpa automática: o campo fica para o usuário dizer o
+// que de fato aconteceu.
+test('jornada não cumprida não gera frase', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA', e1: '09:26', s1: '11:00', carga: 240, o: [1, 1, 0, 0] });
+
+    assert.equal(justificativaDeAto(d), '');
+});
+
+// O 13:45 lido como retorno do almoço não fecha turno nenhum: trabalhado = 0.
+// O sistema tem de ficar calado até o horário estar na coluna certa.
+test('batimento na coluna errada não vira jornada cumprida', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA', e1: '09:26', e2: '13:45', carga: 240, o: [1, 0, 1, 0] });
+
+    assert.equal(minutosTrabalhados(d), 0);
+    assert.equal(justificativaDeAto(d), '');
+});
+
+test('expediente reduzido tem a sua própria redação', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'EXPEDIENTE REDUZIDO', e1: '09:00', s1: '13:00', carga: 240, o: [1, 1, 0, 0] });
+
+    assert.match(justificativaDeAto(d), /^Dia de expediente reduzido:/);
+});
+
+test('dia útil comum não recebe frase de ato', () => {
+    usarJunho2026();
+    const d = dia({ e1: '08:00', s1: '12:00', e2: '13:00', s2: '17:00' });
+
+    assert.equal(justificativaDeAto(d), '');
+});
+
+// A frase automática cede lugar ao que o usuário escrever.
+test('o texto do usuário vence a frase de ato', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'DISPENSA', e1: '09:26', s1: '13:45', carga: 240, o: [1, 1, 0, 0] });
+    d.justManual = 'Compareci ao curso de doutorado no período da tarde.';
+
+    assert.equal(
+        textoDaJustificativa(d, '03/07/2026', [], 'X'),
+        '03/07/2026 - Compareci ao curso de doutorado no período da tarde.');
+});
+
+// Campo em branco sem explicação é indistinguível de defeito — foi exatamente
+// assim que o silêncio da dispensa sem jornada apareceu na tela.
+test('o campo vazio diz por que o sistema não escreveu', () => {
+    usarJunho2026();
+
+    const semJornada = dia({ mot: 'DISPENSA', e1: '09:26', s1: '13:45', o: [1, 1, 0, 0] });
+    assert.match(motivoDoSilencio(semJornada), /Informe a jornada da dispensa/);
+
+    const naoFecha = dia({ mot: 'DISPENSA', e1: '09:26', s1: '11:00', carga: 240, o: [1, 1, 0, 0] });
+    assert.match(motivoDoSilencio(naoFecha), /não fecha neste dia/);
+
+    // Cumprida: há frase, então não há silêncio a explicar.
+    const fecha = dia({ mot: 'DISPENSA', e1: '09:26', s1: '13:45', carga: 240, o: [1, 1, 0, 0] });
+    assert.equal(motivoDoSilencio(fecha), '');
+
+    // Dia comum não tem jornada de ato: nada a explicar.
+    assert.equal(motivoDoSilencio(dia({ e1: '08:00' })), '');
+});
+
+test('expediente reduzido cita o decreto, não a dispensa', () => {
+    usarJunho2026();
+    const d = dia({ mot: 'EXPEDIENTE REDUZIDO', e1: '09:00', s1: '11:00', o: [1, 1, 0, 0] });
+    assert.match(motivoDoSilencio(d), /jornada do decreto/);
+});
+
+// --- biblioteca de frases ---
+
+test('duracaoHumana escreve como se fala', () => {
+    assert.equal(duracaoHumana(240), '4h');
+    assert.equal(duracaoHumana(259), '4h19');
+    assert.equal(duracaoHumana(600), '10h');
+    assert.equal(duracaoHumana(45), '45min');
+    assert.equal(duracaoHumana(0), '');
+    assert.equal(duracaoHumana(undefined), '');
+});
+
+test('as lacunas recebem os valores do dia', () => {
+    const frase = 'Cumpri {trabalhado} da jornada de {jornada} exigida em {data}.';
+    assert.equal(
+        aplicarLacunas(frase, { jornada: 240, trabalhado: 259, data: '03/07/2026' }),
+        'Cumpri 4h19 da jornada de 4h exigida em 03/07/2026.');
+});
+
+// A mesma frase guardada precisa servir num dia de 2h sem sair errada.
+test('a mesma frase serve para jornadas diferentes', () => {
+    const frase = 'Cumpri a jornada de {jornada} exigida pelo ato.';
+    assert.equal(aplicarLacunas(frase, { jornada: 240 }), 'Cumpri a jornada de 4h exigida pelo ato.');
+    assert.equal(aplicarLacunas(frase, { jornada: 120 }), 'Cumpri a jornada de 2h exigida pelo ato.');
+});
+
+// Marcador cru num documento assinado é pior que uma frase incompleta.
+test('lacuna sem valor some junto com o espaço que a precede', () => {
+    assert.equal(
+        aplicarLacunas('Cumpri a jornada de {jornada} exigida.', {}),
+        'Cumpri a jornada de exigida.');
+    assert.ok(!aplicarLacunas('x {jornada} y', {}).includes('{'), 'nenhum marcador sobra');
+});
+
+test('a frase guardada é aplicada com as lacunas do dia', () => {
+    const d = dia({ o: [1, 0, 1, 0], e1: '09:26', s1: '13:45', carga: 240 });
+    d.justManual = 'Cumpri {trabalhado} da jornada de {jornada} do ato.';
+
+    assert.equal(
+        textoDaJustificativa(d, '03/07/2026', [], 'X'),
+        '03/07/2026 - Cumpri 4h19 da jornada de 4h do ato.');
+});
+
+test('as frases do tipo do dia sobem, e entre elas a mais usada', () => {
+    const frases = [
+        { texto: 'útil pouco usada', tipo: 'util', usos: 1 },
+        { texto: 'dispensa pouco usada', tipo: 'dispensa', usos: 1 },
+        { texto: 'dispensa muito usada', tipo: 'dispensa', usos: 9 },
+    ];
+
+    assert.deepEqual(
+        frasesParaOTipo(frases, 'dispensa').map((f) => f.texto),
+        ['dispensa muito usada', 'dispensa pouco usada', 'útil pouco usada']);
+
+    // Nenhuma frase é filtrada: só a ordem muda.
+    assert.equal(frasesParaOTipo(frases, 'util').length, 3);
+});
+
+test('frasesParaOTipo não altera a lista original', () => {
+    const frases = [{ texto: 'a', tipo: 'util' }, { texto: 'b', tipo: 'dispensa' }];
+    frasesParaOTipo(frases, 'dispensa');
+    assert.equal(frases[0].texto, 'a', 'a biblioteca em memória foi reordenada por acidente');
+});
+
+test('a sugestão é a mais usada do mesmo tipo, e só dele', () => {
+    const frases = [
+        { texto: 'de dispensa', tipo: 'dispensa', usos: 2 },
+        { texto: 'de dispensa, campeã', tipo: 'dispensa', usos: 7 },
+        { texto: 'de dia útil', tipo: 'util', usos: 99 },
+    ];
+
+    assert.equal(sugestaoParaOTipo(frases, 'dispensa'), 'de dispensa, campeã');
+    // Sem frase do tipo, não sugere nada — propor a de outro tipo seria pior
+    // que não propor.
+    assert.equal(sugestaoParaOTipo(frases, 'reduzido'), '');
+    assert.equal(sugestaoParaOTipo([], 'util'), '');
 });
 
 // --- conversão com o backend ---

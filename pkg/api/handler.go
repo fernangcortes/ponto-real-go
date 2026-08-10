@@ -26,15 +26,18 @@ const uploadMaxBytes = 10 * 1024 * 1024
 // de tipo de arquivo e checagem de chave são regra de aplicação e vivem em
 // pkg/service.
 type Handler struct {
-	service  *service.TimesheetService
-	settings *settingsStore
+	service        *service.TimesheetService
+	settings       *settingsStore
+	justificativas *justificativasStore
 }
 
 // NewHandler cria um novo Handler com as dependências injetadas.
-func NewHandler(service *service.TimesheetService, settingsRepo repository.SettingsRepository) *Handler {
+func NewHandler(service *service.TimesheetService, settingsRepo repository.SettingsRepository,
+	justificativasRepo repository.JustificativasRepository) *Handler {
 	return &Handler{
-		service:  service,
-		settings: newSettingsStore(settingsRepo),
+		service:        service,
+		settings:       newSettingsStore(settingsRepo),
+		justificativas: newJustificativasStore(justificativasRepo),
 	}
 }
 
@@ -52,6 +55,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/months", h.ListMonths)
 	mux.HandleFunc("GET /api/month/{mesAno}", h.LoadMonth)
 	mux.HandleFunc("POST /api/month/{mesAno}", h.SaveMonth)
+	// Biblioteca de frases de justificativa, compartilhada entre os meses
+	mux.HandleFunc("GET /api/justificativas", h.GetJustificativas)
+	mux.HandleFunc("POST /api/justificativas", h.SaveJustificativas)
 }
 
 // decodeBody lê o corpo JSON da requisição.
@@ -211,6 +217,41 @@ func (h *Handler) Validate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, h.service.Validate(req.Day))
+}
+
+// GetJustificativas retorna a biblioteca de frases do usuário.
+func (h *Handler) GetJustificativas(w http.ResponseWriter, r *http.Request) {
+	biblioteca := h.justificativas.Get()
+	// Nunca devolver null: o front-end itera direto sobre a lista.
+	if biblioteca.Frases == nil {
+		biblioteca.Frases = []models.Justificativa{}
+	}
+	writeJSON(w, http.StatusOK, biblioteca)
+}
+
+// SaveJustificativas substitui a biblioteca inteira pela lista recebida.
+//
+// O corpo traz o estado completo, e não uma frase a acrescentar: é o que
+// permite que apagar funcione. Uma rota de "adicionar" precisaria de outra de
+// "remover" e de identificador por frase, sem ganhar nada — a biblioteca é
+// pequena e o cliente já a tem inteira na mão.
+func (h *Handler) SaveJustificativas(w http.ResponseWriter, r *http.Request) {
+	var req models.BibliotecaJustificativas
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	biblioteca, err := h.justificativas.Substituir(req.Frases)
+	if err != nil {
+		writeError(w, fmt.Errorf("erro ao salvar as justificativas: %w", err))
+		return
+	}
+
+	if biblioteca.Frases == nil {
+		biblioteca.Frases = []models.Justificativa{}
+	}
+	writeJSON(w, http.StatusOK, biblioteca)
 }
 
 // ListMonths retorna todos os meses salvos.

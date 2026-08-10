@@ -83,13 +83,25 @@ export const classifyDay = (d) => {
     return 'folga';
 };
 
-// --- Ocorrência (seção do documento SEI) ---
+// --- Ocorrência e justificativa (as duas seções do documento SEI) ---
 
-// Por padrão a ocorrência é derivada de d.o (existe algum horário gerado).
-// d.ocorrenciaManual permite sobrepor: true força inclusão, false força
+// Por padrão o dia entra no documento quando há horário gerado (d.o tem algum
+// 0). d.ocorrenciaManual permite sobrepor: true força inclusão, false força
 // exclusão, null/undefined mantém o comportamento automático.
 export const isAutoOccurrence = (d) => !!(d.o && d.o.includes(0));
 
+// isOccurrenceDay responde "este dia entra no documento SEI?".
+//
+// É o ÚNICO critério: o que o checkbox da linha mostra é exatamente o que sai
+// nas duas seções do documento — a tabela de ocorrência e a de justificativa.
+//
+// Essa unicidade é o conserto de um defeito concreto. Antes o checkbox
+// consultava esta função e a tabela consultava outra, mais restritiva, que
+// excluía a dispensa sem campo gerado preenchido. Num dia assim o checkbox
+// aparecia marcado e o dia não saía em lugar nenhum — e não havia como forçar,
+// porque desmarcar e remarcar devolvia o dia ao estado "automático", que era
+// justamente o que a tabela ignorava. Dois predicados para a mesma pergunta
+// sempre acabam discordando; agora só existe um.
 export const isOccurrenceDay = (d) => {
     if (d.ocorrenciaManual === true) return true;
     if (d.ocorrenciaManual === false) return false;
@@ -105,22 +117,6 @@ export const camposFaltantes = (d, isDispensa) => {
         // Dispensa: só listar se o campo foi preenchido pelo usuário.
         return !isDispensa || isTimeValid(d[CAMPOS_HORARIO[fi]]);
     });
-};
-
-// deveAparecerNaOcorrencia decide se o dia entra nas tabelas de ocorrência e
-// justificativa do documento SEI.
-export const deveAparecerNaOcorrencia = (d, tipo) => {
-    if (!isOccurrenceDay(d)) return false;
-
-    const isDispensa = tipo === 'dispensa';
-    const isManual = d.ocorrenciaManual === true;
-    // Ocorrência manual é sempre exibida: o usuário pediu explicitamente.
-    if (!isDispensa || isManual) return true;
-
-    // Dispensa detectada automaticamente só aparece se algum campo editável
-    // foi preenchido.
-    const bloqueio = d.o || [1, 1, 1, 1];
-    return CAMPOS_HORARIO.some((f, fi) => bloqueio[fi] === 0 && isTimeValid(d[f]));
 };
 
 // --- Avisos de conferência ---
