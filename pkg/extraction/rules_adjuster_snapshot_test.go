@@ -155,19 +155,18 @@ var casosDoSnapshot = []casoDeSnapshot{
 		bloqueio: [4]int{0, 1, 0, 1},
 	},
 	{
-		// Cai no fallback, que registra "combinação não prevista" no log — e não
-		// é combinação exótica nenhuma: é o dia em que só um batimento do meio
-		// do dia foi lido.
-		ramo:     "fallback: só a saída para o almoço",
+		// Sem nenhuma âncora de manhã: a entrada é arbitrada entre 08:00 e
+		// 09:00, porque não há de onde deduzi-la.
+		ramo:     "só a saída para o almoço",
 		mascara:  ".X..",
 		batidos:  [4]string{"10:47", "", "", ""},
 		esperado: [4]string{"08:44", "10:47", "11:52", "18:03"},
 		bloqueio: [4]int{0, 1, 0, 0},
 	},
 	{
-		// O outro fallback: o servidor bateu na saída e na volta do almoço e
-		// esqueceu as duas pontas.
-		ramo:     "fallback: saída e retorno do almoço",
+		// O outro dia sem âncora de manhã: o servidor bateu na saída e na volta
+		// do almoço e esqueceu as duas pontas.
+		ramo:     "saída e retorno do almoço, sem as pontas",
 		mascara:  ".XX.",
 		batidos:  [4]string{"11:30", "13:41", "", ""},
 		esperado: [4]string{"08:44", "11:30", "13:41", "18:51"},
