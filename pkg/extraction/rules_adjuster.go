@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math/rand"
 	"sort"
+	"time"
 
 	"github.com/fernangcortes/ponto-real-go/pkg/models"
 	"github.com/fernangcortes/ponto-real-go/pkg/rules"
@@ -25,12 +26,31 @@ const (
 
 // RulesAdjuster ajusta horários faltantes usando lógica determinística.
 // Substitui o LLM para ajuste — muito mais confiável e rápido.
+//
+// O sorteio vive no próprio ajustador, e não no rand global do pacote. É o que
+// permite repetir uma execução inteira a partir de uma semente, e sem isso a
+// suíte não consegue travar os horários que cada ramo produz: ela ficaria verde
+// tanto para o número certo quanto para o errado.
+//
+// Em troca, um ajustador não pode ser usado por duas goroutines ao mesmo tempo.
+// É um por folha processada, que é como o serviço já o cria.
 type RulesAdjuster struct {
 	Engine *rules.Engine
+	rng    *rand.Rand
 }
 
+// NewRulesAdjuster cria o ajustador de produção, com o sorteio semeado pelo
+// relógio: horário inventado tem de variar de uma execução para outra.
 func NewRulesAdjuster(engine *rules.Engine) *RulesAdjuster {
-	return &RulesAdjuster{Engine: engine}
+	return newRulesAdjusterComSemente(engine, time.Now().UnixNano())
+}
+
+// newRulesAdjusterComSemente cria um ajustador reproduzível: a mesma semente
+// com os mesmos batimentos devolve sempre os mesmos horários. Existe para o
+// teste conseguir comparar números — é a única forma de uma mudança de valor
+// ser percebida.
+func newRulesAdjusterComSemente(engine *rules.Engine, semente int64) *RulesAdjuster {
+	return &RulesAdjuster{Engine: engine, rng: rand.New(rand.NewSource(semente))}
 }
 
 // almocoGerado sorteia a duração do almoço a ser inventado num dia, dentro da
@@ -47,7 +67,7 @@ func (r *RulesAdjuster) almocoGerado() int {
 	if max < min {
 		max = min + 15
 	}
-	return randBetween(min, max)
+	return r.randBetween(min, max)
 }
 
 // Adjust recebe um Timesheet e preenche horários faltantes com valores realistas.
@@ -268,10 +288,10 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 		if maxS1 < minS1 {
 			maxS1 = minS1 + 30
 		}
-		s1 = randBetween(minS1, maxS1)
-		s1 = avoidRoundMins(s1)
+		s1 = r.randBetween(minS1, maxS1)
+		s1 = r.avoidRoundMins(s1)
 		e2 = s1 + lunch
-		e2 = avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
+		e2 = r.avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
 		if e2 >= s2 {
 			e2 = s2 - 30
 		}
@@ -280,37 +300,37 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 
 	// apenas e1
 	if e1 > 0 && s1 == 0 && e2 == 0 && s2 == 0 {
-		s1 = e1 + randBetween(200, 240)
-		s1 = avoidRoundMins(s1)
+		s1 = e1 + r.randBetween(200, 240)
+		s1 = r.avoidRoundMins(s1)
 		lunch := r.almocoGerado()
 		e2 = s1 + lunch
-		e2 = avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
+		e2 = r.avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
 		morningWork := s1 - e1
 		afternoonNeeded := carga - morningWork
 		if afternoonNeeded < 180 {
 			afternoonNeeded = 180
 		}
-		s2 = e2 + afternoonNeeded + randBetween(-5, 15)
-		s2 = avoidRoundMins(s2)
+		s2 = e2 + afternoonNeeded + r.randBetween(-5, 15)
+		s2 = r.avoidRoundMins(s2)
 		return e1, s1, e2, s2, o
 	}
 
 	// apenas s2 (o código de posição única garante que se tem só 1 valor tarde, ele o joga pro s2 se for MT tarde, mas fallback aqui normal)
 	if e1 == 0 && s1 == 0 && e2 == 0 && s2 > 0 {
 		lunch := r.almocoGerado()
-		afternoonWork := randBetween(200, 270)
+		afternoonWork := r.randBetween(200, 270)
 		e2 = s2 - afternoonWork
-		e2 = avoidRoundMins(e2)
+		e2 = r.avoidRoundMins(e2)
 		s1 = e2 - lunch
-		s1 = avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
-		morningWork := carga - afternoonWork + randBetween(-5, 15)
+		s1 = r.avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
+		morningWork := carga - afternoonWork + r.randBetween(-5, 15)
 		if morningWork < 120 {
 			morningWork = 120
 		}
 		e1 = s1 - morningWork
-		e1 = avoidRoundMins(e1)
+		e1 = r.avoidRoundMins(e1)
 		if e1 < 7*60 {
-			e1 = 7*60 + randBetween(2, 28)
+			e1 = 7*60 + r.randBetween(2, 28)
 		}
 		return e1, s1, e2, s2, o
 	}
@@ -319,10 +339,10 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	if e1 == 0 && s1 == 0 && e2 > 0 && s2 == 0 {
 		lunch := r.almocoGerado()
 		s1 = e2 - lunch
-		s1 = avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
-		morningWork := randBetween(220, 260)
+		s1 = r.avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
+		morningWork := r.randBetween(220, 260)
 		e1 = s1 - morningWork
-		e1 = avoidRoundMins(e1)
+		e1 = r.avoidRoundMins(e1)
 		if e1 < 7*60 {
 			// Mesma trava dos demais geradores de entrada: nunca inventar um
 			// início de expediente de madrugada. Um retorno de almoço cedo —
@@ -331,16 +351,16 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 			// A manhã tem de ser recontada a partir do horário travado: sem
 			// isso a tarde compensaria uma manhã que não aconteceu, e o dia
 			// fecharia com mais horas do que o servidor trabalhou.
-			e1 = 7*60 + randBetween(2, 28)
+			e1 = 7*60 + r.randBetween(2, 28)
 			morningWork = s1 - e1
 		}
 
-		afternoonNeeded := carga - morningWork + randBetween(-5, 15)
+		afternoonNeeded := carga - morningWork + r.randBetween(-5, 15)
 		if afternoonNeeded < 120 {
 			afternoonNeeded = 120
 		}
 		s2 = e2 + afternoonNeeded
-		s2 = avoidRoundMins(s2)
+		s2 = r.avoidRoundMins(s2)
 		return e1, s1, e2, s2, o
 	}
 
@@ -348,14 +368,14 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	if e1 > 0 && s1 > 0 && e2 == 0 && s2 == 0 {
 		lunch := r.almocoGerado()
 		e2 = s1 + lunch
-		e2 = avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
+		e2 = r.avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
 		morningWork := s1 - e1
-		afternoonNeeded := carga - morningWork + randBetween(-5, 15)
+		afternoonNeeded := carga - morningWork + r.randBetween(-5, 15)
 		if afternoonNeeded < 180 {
 			afternoonNeeded = 180
 		}
 		s2 = e2 + afternoonNeeded
-		s2 = avoidRoundMins(s2)
+		s2 = r.avoidRoundMins(s2)
 		return e1, s1, e2, s2, o
 	}
 
@@ -363,16 +383,16 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	if e1 == 0 && s1 == 0 && e2 > 0 && s2 > 0 {
 		lunch := r.almocoGerado()
 		s1 = e2 - lunch
-		s1 = avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
+		s1 = r.avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
 		afternoonWork := s2 - e2
-		morningNeeded := carga - afternoonWork + randBetween(-5, 15)
+		morningNeeded := carga - afternoonWork + r.randBetween(-5, 15)
 		if morningNeeded < 120 {
 			morningNeeded = 120
 		}
 		e1 = s1 - morningNeeded
-		e1 = avoidRoundMins(e1)
+		e1 = r.avoidRoundMins(e1)
 		if e1 < 7*60 {
-			e1 = 7*60 + randBetween(2, 28)
+			e1 = 7*60 + r.randBetween(2, 28)
 		}
 		return e1, s1, e2, s2, o
 	}
@@ -380,25 +400,25 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	// 3 de 4 preenchidos — gerar o faltante
 	if e1 == 0 && s1 > 0 && e2 > 0 && s2 > 0 {
 		afternoonWork := s2 - e2
-		morningNeeded := carga - afternoonWork + randBetween(-5, 15)
+		morningNeeded := carga - afternoonWork + r.randBetween(-5, 15)
 		if morningNeeded < 120 {
 			morningNeeded = 120
 		}
 		e1 = s1 - morningNeeded
-		e1 = avoidRoundMins(e1)
+		e1 = r.avoidRoundMins(e1)
 		if e1 < 7*60 {
-			e1 = 7*60 + randBetween(2, 28)
+			e1 = 7*60 + r.randBetween(2, 28)
 		}
 		return e1, s1, e2, s2, o
 	}
 	if e1 > 0 && s1 == 0 && e2 > 0 && s2 > 0 {
-		lunch := e2 - e1 - randBetween(200, 240)
+		lunch := e2 - e1 - r.randBetween(200, 240)
 		if lunch < minAlmoco {
-			s1 = e2 - minAlmoco - randBetween(0, 10)
+			s1 = e2 - minAlmoco - r.randBetween(0, 10)
 		} else {
 			s1 = e2 - lunch
 		}
-		s1 = avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
+		s1 = r.avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
 		if s1 <= e1 {
 			// A saída do almoço tem de ficar entre a entrada e o retorno reais.
 			s1 = meioEntre(e1, e2)
@@ -408,7 +428,7 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	if e1 > 0 && s1 > 0 && e2 == 0 && s2 > 0 {
 		lunch := r.almocoGerado()
 		e2 = s1 + lunch
-		e2 = avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
+		e2 = r.avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
 		if e2 >= s2 {
 			e2 = s2 - 30
 		}
@@ -416,45 +436,45 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	}
 	if e1 > 0 && s1 > 0 && e2 > 0 && s2 == 0 {
 		morningWork := s1 - e1
-		afternoonNeeded := carga - morningWork + randBetween(-5, 15)
+		afternoonNeeded := carga - morningWork + r.randBetween(-5, 15)
 		if afternoonNeeded < 180 {
 			afternoonNeeded = 180
 		}
 		s2 = e2 + afternoonNeeded
-		s2 = avoidRoundMins(s2)
+		s2 = r.avoidRoundMins(s2)
 		return e1, s1, e2, s2, o
 	}
 
 	// e1 e e2 (sem saídas)
 	if e1 > 0 && s1 == 0 && e2 > 0 && s2 == 0 {
 		s1 = e2 - r.almocoGerado()
-		s1 = avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
+		s1 = r.avoidRoundMinsEntre(s1, semPiso, e2-minAlmoco)
 		if s1 <= e1 {
 			// Entrada e retorno perto demais para o almoço mínimo: a saída tem
 			// de caber ENTRE os dois pontos reais, nunca depois do retorno.
 			s1 = meioEntre(e1, e2)
 		}
 		morningWork := s1 - e1
-		afternoonNeeded := carga - morningWork + randBetween(-5, 15)
+		afternoonNeeded := carga - morningWork + r.randBetween(-5, 15)
 		if afternoonNeeded < 180 {
 			afternoonNeeded = 180
 		}
 		s2 = e2 + afternoonNeeded
-		s2 = avoidRoundMins(s2)
+		s2 = r.avoidRoundMins(s2)
 		return e1, s1, e2, s2, o
 	}
 
 	// s1 e s2 (sem entradas)
 	if e1 == 0 && s1 > 0 && e2 == 0 && s2 > 0 {
-		morningWork := randBetween(200, 240)
+		morningWork := r.randBetween(200, 240)
 		e1 = s1 - morningWork
-		e1 = avoidRoundMins(e1)
+		e1 = r.avoidRoundMins(e1)
 		if e1 < 7*60 {
-			e1 = 7*60 + randBetween(2, 28)
+			e1 = 7*60 + r.randBetween(2, 28)
 		}
 		lunch := r.almocoGerado()
 		e2 = s1 + lunch
-		e2 = avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
+		e2 = r.avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
 		if e2 >= s2 {
 			e2 = s2 - 30
 		}
@@ -465,21 +485,21 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	slog.Warn("combinação de batimentos não prevista; usando o preenchimento genérico",
 		"e1", e1, "s1", s1, "e2", e2, "s2", s2)
 	if e1 == 0 {
-		e1 = 8*60 + randBetween(0, 60)
-		e1 = avoidRoundMins(e1)
+		e1 = 8*60 + r.randBetween(0, 60)
+		e1 = r.avoidRoundMins(e1)
 	}
 	if s1 == 0 {
-		s1 = e1 + randBetween(200, 240)
-		s1 = avoidRoundMins(s1)
+		s1 = e1 + r.randBetween(200, 240)
+		s1 = r.avoidRoundMins(s1)
 	}
 	if e2 == 0 {
 		e2 = s1 + r.almocoGerado()
-		e2 = avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
+		e2 = r.avoidRoundMinsEntre(e2, s1+minAlmoco, semTeto)
 	}
 	if s2 == 0 {
 		morningWork := s1 - e1
-		s2 = e2 + (carga - morningWork) + randBetween(-5, 15)
-		s2 = avoidRoundMins(s2)
+		s2 = e2 + (carga - morningWork) + r.randBetween(-5, 15)
+		s2 = r.avoidRoundMins(s2)
 	}
 	return e1, s1, e2, s2, o
 }
@@ -522,11 +542,11 @@ func countFilled(vals ...int) int {
 	return n
 }
 
-func randBetween(min, max int) int {
+func (r *RulesAdjuster) randBetween(min, max int) int {
 	if min >= max {
 		return min
 	}
-	return min + rand.Intn(max-min+1)
+	return min + r.rng.Intn(max-min+1)
 }
 
 // minutoRedondo diz se o horário cai num minuto "certinho" — :00, :15, :30 ou
@@ -538,8 +558,8 @@ func minutoRedondo(m int) bool {
 
 // avoidRoundMins afasta um horário gerado dos minutos redondos, quando não há
 // nada limitando para que lado ele pode andar.
-func avoidRoundMins(m int) int {
-	return avoidRoundMinsEntre(m, semPiso, semTeto)
+func (r *RulesAdjuster) avoidRoundMins(m int) int {
+	return r.avoidRoundMinsEntre(m, semPiso, semTeto)
 }
 
 // avoidRoundMinsEntre afasta o horário dos minutos redondos sem sair da faixa
@@ -558,14 +578,14 @@ func avoidRoundMins(m int) int {
 //
 // Deslocar até 7 minutos nunca alcança o minuto redondo seguinte, que está a
 // 15 de distância; por isso basta conferir a faixa.
-func avoidRoundMinsEntre(m, piso, teto int) int {
+func (r *RulesAdjuster) avoidRoundMinsEntre(m, piso, teto int) int {
 	if !minutoRedondo(m) {
 		return m
 	}
 
-	passo := randBetween(1, 7)
+	passo := r.randBetween(1, 7)
 	sinal := 1
-	if rand.Intn(2) == 0 {
+	if r.rng.Intn(2) == 0 {
 		sinal = -1
 	}
 

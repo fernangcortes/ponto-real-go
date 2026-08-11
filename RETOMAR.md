@@ -46,7 +46,7 @@ registro da v1.1.1 com o [MANUAL.md](MANUAL.md).
 Verificação local (tudo verde):
 
 ```bash
-go build ./... && go vet ./... && go test ./...   # 204 testes
+go build ./... && go vet ./... && go test ./...   # 223 testes
 golangci-lint run ./...                            # 0 issues
 npm run lint && npm test                           # 76 testes
 ```
@@ -96,21 +96,57 @@ diz *"combinação não prevista"*, o que faz parecer defeito o que é rotina.
 junho e julho: "falta a entrada" (01/06), "falta a saída" (02, 17 e 22/06) e
 "falta a saída para o almoço" (16/06 e 10/07). O risco está concentrado neles.
 
-**Os testes NÃO protegem a reescrita.** Esta é a descoberta que muda o plano.
-Todos os 13 ramos são executados, mas 11 só pela grade exaustiva
-(`TestHorariosGeradosSempreValidos`), que confere três invariantes — nada passa
-das 23:59, ordem cronológica, nenhum batimento real some — e **nunca olha o
-número gerado**.
+**Os testes não protegiam a reescrita** — e é por isso que o primeiro passo não
+foi reescrever. Todos os 13 ramos eram executados, mas 11 só pela grade
+exaustiva (`TestHorariosGeradosSempreValidos`), que confere três invariantes —
+nada passa das 23:59, ordem cronológica, nenhum batimento real some — e **nunca
+olhava o número gerado**.
 
-> Prova por mutação: somar 45 minutos a toda saída inventada pelo ramo "falta a
-> saída" deixa `go test ./...` inteiramente verde. São 2h15 a mais em junho, no
-> documento assinado, sem nenhum portão reclamar.
+> Prova por mutação, na época: somar 45 minutos a toda saída inventada pelo ramo
+> "falta a saída" deixava `go test ./...` inteiramente verde. São 2h15 a mais em
+> junho, no documento assinado, sem nenhum portão reclamar.
 
-**Portanto o primeiro passo da reescrita não é reescrever.** É travar os
-valores de hoje: semente fixa no sorteio (`randBetween` usa o `math/rand`
-global, então não há como reproduzir uma execução) e snapshot dos 13 ramos. Sem
-isso a suíte fica verde tanto para o certo quanto para o errado, e a reescrita
-é inverificável.
+#### Feito em 2026-08-11: os valores estão travados
+
+O sorteio deixou de depender do `math/rand` global. Agora vive no próprio
+ajustador (`RulesAdjuster.rng`), semeado pelo relógio em produção — horário
+inventado tem de variar — e por `newRulesAdjusterComSemente` no teste. Em troca,
+um ajustador não pode ser compartilhado entre goroutines; o serviço já cria um
+por folha, então nada mudou na prática.
+
+Sobre isso, `pkg/extraction/rules_adjuster_snapshot_test.go`: uma tabela com o
+dia que entra e o dia inteiro que sai, para **as 14 combinações possíveis de
+batimentos** — não 13. A ficha tem 4 colunas, logo 16 combinações; o dia vazio e
+o dia completo o `adjustDay` nunca vê. As outras 14 são os caminhos que ele tem,
+e `TestSnapshotCobreTodaCombinacaoPossivel` impede que um fique de fora. Os dois
+ramos que o `.md` anterior contava como "fallback" são, na verdade, duas
+combinações distintas cair no mesmo lugar: só a saída para o almoço, ou a saída
+e o retorno.
+
+Onde havia dado real, ele foi usado: 01/06 (falta a entrada), 02/06 (falta a
+saída) e 16/06 (falta a saída para o almoço) — os únicos ramos que
+comprovadamente já rodaram na vida real.
+
+A mesma mutação de antes agora quebra o teste, com o dia e os dois horários lado
+a lado:
+
+```
+--- FAIL: TestSnapshotDosHorariosGerados/falta_a_saída_da_tarde_(02/06_real)
+    esperado:  [09:11 12:36 13:37 18:19]
+    veio:      [09:11 12:36 13:37 19:04]
+```
+
+Uma segunda mutação, no fallback (entrada genérica das 08:00 para as 09:00),
+quebra os dois casos de fallback. Cobertura conferida por mutação, não por
+`-coverprofile`.
+
+**O snapshot não diz que os horários são os certos; diz que são os de hoje.**
+Quando a mudança for proposital, o jeito de atualizar está escrito no cabeçalho
+do arquivo: rodar, conferir caso a caso que o dia novo faz sentido (ordem,
+almoço, piso das 07:00, carga), e só então trocar o valor.
+
+**O que falta agora é a reescrita em si** — transformar os 13 caminhos nas 5
+regras que eles realmente são, com o snapshot avisando se algum horário mudar.
 
 Dois defeitos dessa mesma família já foram corrigidos e têm teste. A reescrita
 não pode perdê-los:
