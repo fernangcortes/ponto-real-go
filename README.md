@@ -2,10 +2,14 @@
 
 **Folha de Frequência Inteligente** — Sistema que lê automaticamente folhas de ponto por IA, calcula saldos, gera ocorrências e justificativas para servidores públicos.
 
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://golang.org)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://golang.org)
 [![Gemini AI](https://img.shields.io/badge/Gemini_AI-Google-4285F4?logo=google&logoColor=white)](https://ai.google.dev)
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-Multi--modelo-6E56CF)](https://openrouter.ai)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+> 📖 **[Leia o MANUAL](MANUAL.md)** — as regras em detalhe: o que o sistema
+> inventa, o que ele nunca toca, como cada saldo é apurado e onde a conferência
+> humana é obrigatória. Este README apresenta; o manual explica.
 
 ---
 
@@ -209,6 +213,13 @@ ponto-real-go/
 ---
 
 ## 📝 Changelog
+
+### v1.1.1 — Horários gerados sob controle (Agosto 2026)
+- 🐛 **Entrada da manhã nunca mais é inventada de madrugada.** Um dos geradores estava sem a trava das 07:00 que os outros têm: um único batimento às 11:30 no retorno do almoço produzia entrada às 05:56. A manhã passa a ser recontada depois da trava — sem isso a tarde compensava uma manhã que não aconteceu e o dia fechava com uma hora a mais do que o servidor trabalhou.
+- 🐛 **O almoço gerado não cai mais abaixo do mínimo legal.** O desvio dos minutos redondos era aplicado como lei e comia o intervalo por cima, produzindo almoço de 58 minutos. A regra virou preferência: tenta o outro lado antes, e só aceita o minuto redondo quando nada mais cabe (acontece em ~0,3% dos horários gerados).
+- ✅ **Três testes novos** travando o piso das 07:00, o mínimo do almoço e o comportamento flexível do desvio — incluindo varredura de todo minuto do dia nas quatro colunas.
+- 🔧 **CI de lint consertado**: a action estava presa ao golangci-lint v1, que não roda contra Go 1.25 nem entende o `.golangci.yml` no formato v2. Passa a rodar a mesma versão usada em desenvolvimento.
+- 📖 **[MANUAL.md](MANUAL.md)**: manual detalhado das regras — o que o sistema inventa, o que ele nunca toca, como cada saldo é apurado e onde a conferência humana é obrigatória.
 
 ### v1.1.0 — Conferência Inteligente & Ocorrência Manual (Agosto 2026)
 - ✅ **Realinhamento automático** de observações deslocadas usando o calendário como âncora.

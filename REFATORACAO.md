@@ -571,19 +571,57 @@ a API expor esse segundo vocabulário.
 troca entregaria, sem latência e sem modo de falha offline. Retomar se e quando
 aparecer um segundo cliente do cálculo — aí a duplicação passa a custar de novo.
 
-### 4.5 De quebra: simplificar o `RulesAdjuster`
-`adjustDay` é uma cascata de 13 `if` cobrindo cada combinação de pontos
-preenchidos, terminando num fallback que loga "caso não previsto". A tabela de
-janelas (`janelaSlot`) e `reinterpretarPontos` já mostram o caminho declarativo.
-Os testes de `extraction` protegem a reescrita.
+### 4.5 De quebra: simplificar o `RulesAdjuster` ⏳ MAPEADO, NÃO REESCRITO
 
-### 4.1 De quebra: simplificar o `RulesAdjuster`
-`adjustDay` (`rules_adjuster.go:236-455`) é uma cascata de 13 `if` cobrindo cada
-combinação de pontos preenchidos, terminando num fallback que loga "caso não
-previsto". A tabela de janelas (`janelaSlot`) e `reinterpretarPontos` já mostram o
-caminho da abordagem declarativa — dá para reescrever o preenchimento como
-"gerar o ponto faltante dentro da janela plausível respeitando as âncoras reais",
-com uma fração dos ramos. Os 16 testes de `extraction` protegem essa reescrita.
+*(Esta seção aparecia duplicada, como "4.5" e como "4.1 De quebra". Unificada
+aqui em 2026-08-11, com o que o levantamento apurou.)*
+
+`adjustDay` é uma cascata de 12 combinações de pontos preenchidos mais um
+fallback que loga *"combinação não prevista"*. `janelaSlot` e
+`reinterpretarPontos`, no mesmo arquivo, já mostram o caminho declarativo.
+
+**A frase "os testes de `extraction` protegem a reescrita" estava errada** — e
+essa é a descoberta que reordenou o trabalho. O que foi medido em 2026-08-10:
+
+**Os 13 caminhos são 4 decisões.** Um gerador por coluna, reescrito de 3 a 6
+vezes, com constantes que divergiram entre as cópias por acidente:
+
+| O que é inventado | Aparece em | Cópias idênticas | Divergência entre elas |
+|---|---|---|---|
+| saída da tarde | 6 ramos | 3 iguais caractere a caractere | piso de 3h, de 2h, ou nenhum |
+| entrada da manhã | 6 ramos | 3 iguais | um estava sem a trava das 07:00 |
+| retorno do almoço | 6 ramos | 3 iguais | só um é diferente de verdade |
+| saída para o almoço | 8 ramos | 4 iguais | só um é diferente; a cópia do fallback é código morto |
+
+Sobram **5 regras realmente distintas** em 13 caminhos.
+
+**O fallback é alcançável**, e por batimentos banais: um único ponto entre 10:31
+e 13:30, ou dois pontos entre 10:31 e 16:00 (uns 48 mil pares de horários). Roda
+114 vezes na própria grade de testes. O log diz "combinação não prevista", o que
+faz parecer defeito o que é rotina.
+
+**A suíte executa todos os 13 ramos e não trava nenhum valor.** Onze deles só
+são alcançados pela grade exaustiva (`TestHorariosGeradosSempreValidos`), que
+confere três invariantes — nada passa das 23:59, ordem cronológica, nenhum
+batimento real some — e nunca olha o número gerado.
+
+> **Prova por mutação:** somar 45 minutos a toda saída inventada pelo ramo
+> "falta a saída" deixa `go test ./...` inteiramente verde. São 2h15 a mais em
+> junho, num documento assinado, sem nenhum portão reclamar.
+
+**Consequência para a reescrita:** o primeiro passo não é reescrever, é **travar
+os valores de hoje** — semente fixa no sorteio (`randBetween` usa o `math/rand`
+global, então não há como reproduzir uma execução) e snapshot dos 13 ramos. Sem
+isso a suíte fica verde tanto para o certo quanto para o errado.
+
+**Dois defeitos dessa família já foram corrigidos** (v1.1.1), com teste que
+falha antes e passa depois:
+
+- entrada da manhã inventada às 05:56, por falta da trava das 07:00 num ramo;
+- almoço gerado de 58 minutos, porque o desvio do minuto redondo comia o
+  intervalo por cima.
+
+O detalhe operacional dessas regras está no [MANUAL.md](MANUAL.md).
 
 ---
 

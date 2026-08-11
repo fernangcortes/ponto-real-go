@@ -1,7 +1,8 @@
 # Onde paramos
 
-Ponto de partida para uma nova sessão. O detalhe de tudo que foi feito está em
-[REFATORACAO.md](REFATORACAO.md); aqui fica só o necessário para retomar.
+Ponto de partida para uma nova sessão. As regras de operação estão no
+[MANUAL.md](MANUAL.md); o detalhe do que foi feito, em
+[REFATORACAO.md](REFATORACAO.md). Aqui fica só o necessário para retomar.
 
 ## Estado
 
@@ -9,13 +10,17 @@ Ponto de partida para uma nova sessão. O detalhe de tudo que foi feito está em
 (`1d9f31b`). A branch `refatoracao` cumpriu seu papel e não é mais o lugar de
 trabalhar.
 
-O CI rodou pela primeira vez nesse merge. **Go e front-end passaram — inclusive
-o `-race`, que nunca tinha sido exercitado.** O Lint falhou por versão de
-ferramenta, não por achado no código: a action estava em `@v6`, que resolve
-`latest` dentro da linha v1 do golangci-lint, e a v1 não roda contra um `go.mod`
-que pede Go 1.25 nem entende o `.golangci.yml` no formato v2. Corrigido fixando
-a action em `@v9` e a versão em `v2.12.2`, a mesma da máquina de
-desenvolvimento.
+**O CI está verde nos três jobs** — e essa é a novidade que mais importa,
+porque significa que o `-race` finalmente rodou. Ele exige compilador C, não
+roda na máquina de desenvolvimento e por isso era o único portão sem resposta
+nos 13 commits da refatoração. Rodou, e não achou corrida.
+
+O Lint quebrou na primeira execução, por versão de ferramenta e não por achado
+no código: a action estava em `@v6`, que resolve `latest` dentro da linha v1 do
+golangci-lint, e a v1 não roda contra um `go.mod` que pede Go 1.25 nem entende o
+`.golangci.yml` no formato v2. Corrigido em `0476b17`, fixando a action em `@v9`
+e a versão em `v2.12.2` — a mesma da máquina de desenvolvimento, de propósito:
+lint que diverge entre local e CI só descobre problema depois do push.
 
 Os 13 commits que entraram no merge:
 
@@ -35,13 +40,18 @@ db4f6db refactor(backend): reestruturar camadas, corrigir defeitos e cobrir com 
 e4e612e chore: normalizar fim de linha e fixar a regra no .gitattributes
 ```
 
-Verificação (tudo verde no último commit):
+Depois vieram, direto na `master`: `0476b17` (conserto do CI de lint) e o
+registro da v1.1.1 com o [MANUAL.md](MANUAL.md).
+
+Verificação local (tudo verde):
 
 ```bash
 go build ./... && go vet ./... && go test ./...   # 204 testes
 golangci-lint run ./...                            # 0 issues
 npm run lint && npm test                           # 76 testes
 ```
+
+O CI acrescenta a estes o `go test -race ./...`, que é o portão que só ele dá.
 
 ## O que o usuário precisa fazer antes de qualquer coisa nova
 

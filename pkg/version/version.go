@@ -5,4 +5,4 @@
 package version
 
 // Atual é a versão do aplicativo, servida em GET /api/health.
-const Atual = "1.1.0"
+const Atual = "1.1.1"

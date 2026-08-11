@@ -1,6 +1,6 @@
 {
   "name": "ponto-real-go-web",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "Ferramentas de lint do front-end. O aplicativo NÃO tem build: web/ é servido exatamente como está, embutido no binário Go via go:embed. O Node é necessário só para rodar o lint.",
   "scripts": {
