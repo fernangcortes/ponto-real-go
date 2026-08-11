@@ -59,9 +59,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - uses: golangci/golangci-lint-action@v6
+      # A action tem de ser v7 ou mais nova: a v6 resolve "latest" dentro da
+      # linha v1 do golangci-lint, e a v1 não entende o .golangci.yml deste
+      # projeto, que está no formato v2. Pior: a v1 é compilada com Go 1.24 e
+      # recusa-se a rodar contra o go.mod daqui, que pede 1.25.
+      #
+      # A versão é fixada de propósito, e é a mesma que se roda na máquina de
+      # desenvolvimento. Lint que diverge entre local e CI só descobre problema
+      # depois do push, que é tarde.
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.12.2
 
   web:
     name: Front-end

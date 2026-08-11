@@ -5,12 +5,22 @@ Ponto de partida para uma nova sessão. O detalhe de tudo que foi feito está em
 
 ## Estado
 
-Branch **`refatoracao`**, 13 commits à frente da `master` (12 de código, mais
-este registro), árvore limpa.
-**Nada foi mergeado ainda**, mas a branch **já está no GitHub** desde
-2026-08-10 (`origin/refatoracao`), então o CI enfim roda nela.
+**A refatoração foi mergeada na `master`** em 2026-08-10, pelo PR #1
+(`1d9f31b`). A branch `refatoracao` cumpriu seu papel e não é mais o lugar de
+trabalhar.
+
+O CI rodou pela primeira vez nesse merge. **Go e front-end passaram — inclusive
+o `-race`, que nunca tinha sido exercitado.** O Lint falhou por versão de
+ferramenta, não por achado no código: a action estava em `@v6`, que resolve
+`latest` dentro da linha v1 do golangci-lint, e a v1 não roda contra um `go.mod`
+que pede Go 1.25 nem entende o `.golangci.yml` no formato v2. Corrigido fixando
+a action em `@v9` e a versão em `v2.12.2`, a mesma da máquina de
+desenvolvimento.
+
+Os 13 commits que entraram no merge:
 
 ```
+42186f5 docs: registrar o mapa do RulesAdjuster e o que a suíte não segura
 943afbb fix: não deixar o desvio do minuto redondo encurtar o almoço
 88b3f19 fix: impedir que a entrada da manhã seja inventada de madrugada
 2edb5a4 docs: registrar o hash do commit anterior no RETOMAR
@@ -37,10 +47,8 @@ npm run lint && npm test                           # 76 testes
 
 1. **Conferir os dois meses no app.** Muita regra de cálculo mudou — férias,
    dispensa, saldo oficial, e agora as duas seções do documento SEI. Ele é quem
-   sabe se os números batem com a realidade.
-2. **Olhar o CI da branch.** O `-race` nunca rodou nesta máquina (falta
-   compilador C) e só agora é exercitado de verdade, depois do push.
-3. **Mergear**, se estiver bom: `git checkout master && git merge refatoracao`
+   sabe se os números batem com a realidade. Já está mergeado, então a
+   conferência é para achar erro, não para decidir se entra.
 
 ## O que falta, em ordem de valor
 
