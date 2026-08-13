@@ -214,6 +214,14 @@ ponto-real-go/
 
 ## 📝 Changelog
 
+### v1.1.2 — Um gerador só por horário inventado (Agosto 2026)
+- ♻️ **`adjustDay` reescrito**: 232 linhas viraram 99. Onde havia 12 combinações de batimentos, cada uma com a sua própria cópia da aritmética, agora há **14 casos nomeados** de duas a quatro linhas — e **cada coluna inventada nasce num gerador só**. O que muda de um caso para outro é de qual horário conhecido o gerador se ancora e em que ordem os quatro se resolvem.
+- 🐛 **Sumiu o aviso *"combinação não prevista"*.** Ele não denunciava defeito nenhum: eram duas combinações legítimas — o dia em que o servidor bateu na saída para o almoço, ou nela e no retorno, e esqueceu as duas pontas. Hoje cada uma tem nome e comentário próprios.
+- ✅ **Os horários gerados passaram a ser reproduzíveis.** O sorteio saiu do `math/rand` global e vive no ajustador, semeado pelo relógio em produção e por semente no teste. Sem isso não havia como travar valor nenhum: a suíte ficava verde tanto para o horário certo quanto para o errado.
+- ✅ **Snapshot das 14 combinações possíveis de batimentos**, com o dia que entra e o dia inteiro que sai, usando dado real do usuário onde ele existe. Somar 45 minutos a uma saída inventada — que antes passava despercebido por toda a suíte — agora quebra o teste com os dois horários lado a lado.
+- 🔒 **Nada mudou de horário.** A reescrita foi validada contra a implementação anterior em **206.808 comparações** (as 14 combinações × 24 horários de borda, em 7 regimes de sorteio), com zero diferenças, e o snapshot não se moveu um minuto — o que prova que também a ordem dos sorteios foi preservada.
+- ✅ **Teste novo travando um acoplamento invisível**: nos dois casos sem piso de tarde, o que impede a saída de sair antes do retorno do almoço não está no gerador, e sim nas janelas de plausibilidade de outra função. Alargá-las agora quebra um teste que explica o motivo. A folga real é de **70 minutos** — metade do que se supunha.
+
 ### v1.1.1 — Horários gerados sob controle (Agosto 2026)
 - 🐛 **Entrada da manhã nunca mais é inventada de madrugada.** Um dos geradores estava sem a trava das 07:00 que os outros têm: um único batimento às 11:30 no retorno do almoço produzia entrada às 05:56. A manhã passa a ser recontada depois da trava — sem isso a tarde compensava uma manhã que não aconteceu e o dia fechava com uma hora a mais do que o servidor trabalhou.
 - 🐛 **O almoço gerado não cai mais abaixo do mínimo legal.** O desvio dos minutos redondos era aplicado como lei e comia o intervalo por cima, produzindo almoço de 58 minutos. A regra virou preferência: tenta o outro lado antes, e só aceita o minuto redondo quando nada mais cabe (acontece em ~0,3% dos horários gerados).

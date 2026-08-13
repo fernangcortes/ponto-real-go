@@ -571,17 +571,74 @@ a API expor esse segundo vocabulário.
 troca entregaria, sem latência e sem modo de falha offline. Retomar se e quando
 aparecer um segundo cliente do cálculo — aí a duplicação passa a custar de novo.
 
-### 4.5 De quebra: simplificar o `RulesAdjuster` ⏳ MAPEADO, NÃO REESCRITO
+### 4.5 De quebra: simplificar o `RulesAdjuster` ✅ CONCLUÍDA (2026-08-13)
 
 *(Esta seção aparecia duplicada, como "4.5" e como "4.1 De quebra". Unificada
 aqui em 2026-08-11, com o que o levantamento apurou.)*
 
-`adjustDay` é uma cascata de 12 combinações de pontos preenchidos mais um
-fallback que loga *"combinação não prevista"*. `janelaSlot` e
-`reinterpretarPontos`, no mesmo arquivo, já mostram o caminho declarativo.
+`adjustDay` era uma cascata de 12 combinações de pontos preenchidos mais um
+fallback que logava *"combinação não prevista"*. `janelaSlot` e
+`reinterpretarPontos`, no mesmo arquivo, já mostravam o caminho declarativo.
+
+#### O que ficou
+
+**14 casos nomeados, de duas a quatro linhas cada, e 99 linhas no lugar de 232.**
+Não são 14 regras: **cada coluna inventada nasce num gerador só**, logo abaixo do
+`switch`. O que muda de um caso para outro é de qual horário conhecido o gerador
+se ancora e em que ordem os quatro se resolvem.
+
+São 14 e não 13 porque a ficha tem 4 colunas, logo 16 combinações, menos o dia
+vazio e o dia completo, que `Adjust` nem entrega. Os dois ramos que este
+documento contava como "o fallback" eram, na verdade, duas combinações distintas
+caindo no mesmo lugar: só a saída para o almoço, ou a saída e o retorno. Hoje
+cada uma tem nome e comentário, e o `slog.Warn` sumiu.
+
+**O que segurou a reescrita não foram os testes de invariante** — foi uma
+comparação com a implementação anterior. Com um sorteio que não guarda estado
+(sempre o mínimo da faixa, sempre o máximo, sempre o meio, e mais quatro
+posições), `adjustDay` vira função pura dos batimentos, e as duas implementações
+puderam ser postas lado a lado sobre as 14 combinações × 24 horários de borda =
+29.544 dias, em 7 regimes de sorteio: **206.808 comparações, zero diferenças.**
+As ferramentas ficaram em `rules_adjuster_grade_test.go`; a cópia do código
+antigo foi apagada depois de servir.
+
+**E o snapshot das 14 linhas não mudou nem um minuto**, o que diz mais do que a
+comparação: a ordem em que os sorteios são consumidos também foi preservada,
+então a equivalência vale sob o sorteio de verdade e não só sob os
+determinísticos.
+
+#### O que a reescrita deliberadamente NÃO fez
+
+**Não unificou constante nenhuma.** Unificar muda horário em dia de servidor, e
+isso é decisão de quem assina, não de quem refatora. As quatro divergências
+herdadas passaram a aparecer como argumento na chamada, à vista, em vez de
+enterradas em cópias: o piso da tarde (3h, 2h ou nenhum), a faixa da manhã
+sorteada solta (220–260 ou 200–240), a ordem entre o desvio e o piso, e a
+entrada sorteada solta no dia com as duas saídas.
+
+O efeito de cada unificação possível está medido em
+`rules_adjuster_divergencias_test.go` (`go test ./pkg/extraction -run TestRelatorio -v`).
+
+#### Um acoplamento que o mapa não tinha visto
+
+Nos dois casos sem piso de tarde, o que impede a saída da tarde de sair ANTES do
+retorno do almoço não está em `adjustDay`: está em `janelaSlot`, que limita até
+que horas `reinterpretarPontos` aceita chamar um ponto de "saída para o almoço".
+`rules_adjuster_acoplamento_test.go` trava isso e explica o motivo ao falhar.
+
+A varredura corrigiu de passagem o que se supunha sobre a folga. Com um ponto só
+a saída para o almoço para mesmo nas 13:30; com dois, a reinterpretação decide
+pela penalidade **somada**, e um par como 14:44/14:45 destoa menos como
+saída-almoço/retorno do que como retorno/saída. A saída para o almoço chega,
+então, às **14:44**, e a menor tarde gerada é de **70 minutos** — metade do que
+se pensava, e dependente de duas bordas da janela, não de uma.
+
+#### O levantamento que orientou tudo isso (medido em 2026-08-10)
 
 **A frase "os testes de `extraction` protegem a reescrita" estava errada** — e
-essa é a descoberta que reordenou o trabalho. O que foi medido em 2026-08-10:
+essa é a descoberta que reordenou o trabalho, adiando a reescrita até que os
+valores estivessem travados. Fica registrada porque é o motivo de a ordem ter
+sido essa:
 
 **Os 13 caminhos são 4 decisões.** Um gerador por coluna, reescrito de 3 a 6
 vezes, com constantes que divergiram entre as cópias por acidente:
@@ -595,24 +652,26 @@ vezes, com constantes que divergiram entre as cópias por acidente:
 
 Sobram **5 regras realmente distintas** em 13 caminhos.
 
-**O fallback é alcançável**, e por batimentos banais: um único ponto entre 10:31
-e 13:30, ou dois pontos entre 10:31 e 16:00 (uns 48 mil pares de horários). Roda
-114 vezes na própria grade de testes. O log diz "combinação não prevista", o que
-faz parecer defeito o que é rotina.
+**O fallback era alcançável**, e por batimentos banais: um único ponto entre
+10:31 e 13:30, ou dois pontos entre 10:31 e 16:00 (uns 48 mil pares de horários).
+Rodava 114 vezes na própria grade de testes. O log dizia "combinação não
+prevista", o que fazia parecer defeito o que é rotina.
 
-**A suíte executa todos os 13 ramos e não trava nenhum valor.** Onze deles só
-são alcançados pela grade exaustiva (`TestHorariosGeradosSempreValidos`), que
+**A suíte executava todos os 13 ramos e não travava nenhum valor.** Onze deles só
+eram alcançados pela grade exaustiva (`TestHorariosGeradosSempreValidos`), que
 confere três invariantes — nada passa das 23:59, ordem cronológica, nenhum
-batimento real some — e nunca olha o número gerado.
+batimento real some — e nunca olhava o número gerado.
 
-> **Prova por mutação:** somar 45 minutos a toda saída inventada pelo ramo
-> "falta a saída" deixa `go test ./...` inteiramente verde. São 2h15 a mais em
-> junho, num documento assinado, sem nenhum portão reclamar.
+> **Prova por mutação, na época:** somar 45 minutos a toda saída inventada pelo
+> ramo "falta a saída" deixava `go test ./...` inteiramente verde. São 2h15 a
+> mais em junho, num documento assinado, sem nenhum portão reclamar. **A mesma
+> mutação hoje quebra o snapshot**, com o dia e os dois horários lado a lado.
 
-**Consequência para a reescrita:** o primeiro passo não é reescrever, é **travar
-os valores de hoje** — semente fixa no sorteio (`randBetween` usa o `math/rand`
-global, então não há como reproduzir uma execução) e snapshot dos 13 ramos. Sem
-isso a suíte fica verde tanto para o certo quanto para o errado.
+**Consequência para a reescrita:** o primeiro passo não foi reescrever, foi
+**travar os valores de hoje** — semente fixa no sorteio (`randBetween` usava o
+`math/rand` global, então não havia como reproduzir uma execução) e snapshot das
+combinações. Sem isso a suíte ficaria verde tanto para o certo quanto para o
+errado, e a reescrita não teria como se provar.
 
 **Dois defeitos dessa família já foram corrigidos** (v1.1.1), com teste que
 falha antes e passa depois:
@@ -702,10 +761,14 @@ Achou 13 problemas no `app.js`, todos resolvidos:
 | ~~3~~ | ~~Modularizar front-end~~ | — | ✅ (falta só 3.5, o CSS) |
 | ~~4~~ | ~~Fonte única de verdade~~ | — | ✅ (troca final: ver 4.8) |
 
-**Sobrou do plano inteiro:** o CSS (3.5), o Prettier, a reescrita do
-`RulesAdjuster` (4.5) e a troca da 4.8 — sobre a qual a recomendação agora é
-*não fazer*, porque o teste compartilhado já entrega a garantia que ela
-entregaria.
+**Sobrou do plano inteiro:** o CSS (3.5), o Prettier e a troca da 4.8 — sobre a
+qual a recomendação agora é *não fazer*, porque o teste compartilhado já entrega
+a garantia que ela entregaria.
+
+A reescrita do `RulesAdjuster` (4.5) saiu em 2026-08-13. O que resta dela não é
+código, é **decisão**: as quatro constantes divergentes, que mudam horário em dia
+de servidor e por isso são de quem assina a folha. O efeito de cada unificação
+possível está medido em `rules_adjuster_divergencias_test.go`.
 
 A lição da Fase 4 vale para o resto: *unificar duas implementações começa por
 medir onde elas discordam, não por escolher uma*. Se eu tivesse ligado o
