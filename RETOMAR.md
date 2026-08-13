@@ -259,6 +259,27 @@ que quebra o fechamento: com ele, os casos de tarde inventada fecham a jornada e
 cai de +239 min para +22 (que é só o desvio de −5 a +15 mais a fuga do minuto
 redondo).
 
+**Mas tirar o piso não é opção.** Medido: sem piso nenhum, o caso `X.X.` (as duas
+entradas reais, as duas saídas inventadas) produz tarde de **−64 minutos** — a
+saída sai antes do retorno. E a tarde cai abaixo de uma hora em 1,8% dos dias de
+`XXX.`, 3,3% de `XX..` e 11,4% de `X.X.`. O piso não é só inflador de saldo: onde
+ele segura, está segurando de verdade.
+
+#### Recomendação (2026-08-13), à espera da decisão
+
+| # | Recomendação | Por quê |
+|---|---|---|
+| 1 | **piso de 3h em todos** | é o valor da maioria (4 dos 7 usos) e o único que faz trabalho real; estendê-lo aos dois casos sem piso custa 46 dias em 20.076 (0,2%), no máximo 37 min, e no máximo +32 min de saldo inventado. Em troca, **acaba o acoplamento com `janelaSlot`** — a garantia passa a morar em `adjustDay`, onde deveria, e `rules_adjuster_acoplamento_test.go` pode ser apagado (ele próprio diz isso ao passar a falhar) |
+| 2 | **as duas em 200–240** | é o que os outros dois geradores da mesma pergunta já usam (`saidaParaAlmocoDepoisDaEntrada` e `saidaParaAlmocoEspremida`), e a faixa contém a manhã contratual de 210 min (08:30–12:00); 220–260 é a exceção solitária. É também a mudança mais barata: 56 dias contra 364 |
+| 3 | **sempre antes do piso** | **custo zero**: nenhum dia muda. Na carga de 480 min o piso desse caso nunca chega a segurar (0 de 42 dias; a menor tarde é de 255 min contra um piso de 180). A assimetria não distingue nada — só parece distinguir. E numa carga menor, que é configurável, ela vira defeito: a 360 min o piso passa a segurar sempre e a tarde termina em 174 min, **abaixo do piso de 180** que a chamada diz respeitar |
+| 4 | **calculada pela carga** | usa informação que existe e está sendo jogada fora, que é o defeito de verdade. Hoje esse caso fecha a jornada em **8%** dos dias, com desvio médio de 2h40; pela carga vai a **42%**, com 1h28 — exatamente a faixa dos irmãos que já fazem isso (`.XXX` fecha 42%, `..XX` 51%). Atenção: é a única das quatro que muda a ORDEM em que os sorteios são consumidos, porque o retorno precisa ser calculado antes da entrada |
+
+Nenhuma das quatro toca os seis dias reais. Se a 1 for aceita, a linha do
+MANUAL.md que promete *"o dia fecha na jornada exigida, 8h, com variação de alguns
+minutos"* continua tão aproximada quanto hoje — é o piso que a enfraquece, e ele
+fica. Vale saber que essa linha é a única do MANUAL que a medição não sustenta ao
+pé da letra.
+
 ### 2. Batimento na coluna errada em dia de dispensa
 Levantado pelo usuário em 2026-08-10 e **conscientemente deixado manual** — mas
 o custo apareceu na mesma sessão.
