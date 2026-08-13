@@ -20,12 +20,13 @@ import { fileURLToPath } from 'node:url';
 import { CONFIG } from './config.js';
 import {
     classifyDay, saldoDoDia, deWire,
-    avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA,
+    avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA, MSG_COLUNAS_NAO_FECHAM,
 } from './domain.js';
 
 const AVISO_ESPERADO = {
     dispensa: MSG_CARGA_DISPENSA,
     reduzido: MSG_CARGA_REDUZIDA,
+    colunas: MSG_COLUNAS_NAO_FECHAM,
     '': '',
 };
 

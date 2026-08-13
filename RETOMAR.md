@@ -265,7 +265,18 @@ saída sai antes do retorno. E a tarde cai abaixo de uma hora em 1,8% dos dias d
 `XXX.`, 3,3% de `XX..` e 11,4% de `X.X.`. O piso não é só inflador de saldo: onde
 ele segura, está segurando de verdade.
 
-#### Recomendação (2026-08-13), à espera da decisão
+#### Decidido e implementado em 2026-08-13
+
+As quatro foram unificadas conforme a recomendação abaixo, e **nenhum dia real
+mudou**. O snapshot quebrou em duas linhas, as duas conferidas antes de o valor
+esperado ser atualizado — ordem cronológica, almoço de 71 min, piso das 07:00, e
+o dia fechando em +2 min contra a jornada nas duas.
+
+A régua de medição (`rules_adjuster_divergencias_test.go`) foi apagada: ela
+declarava o próprio prazo de validade e ele venceu aqui. O teste do acoplamento
+com `janelaSlot` também, porque o acoplamento deixou de existir — no lugar dele
+está `rules_adjuster_piso_tarde_test.go`, que trava a garantia onde ela agora
+mora.
 
 | # | Recomendação | Por quê |
 |---|---|---|
@@ -274,15 +285,32 @@ ele segura, está segurando de verdade.
 | 3 | **sempre antes do piso** | **custo zero**: nenhum dia muda. Na carga de 480 min o piso desse caso nunca chega a segurar (0 de 42 dias; a menor tarde é de 255 min contra um piso de 180). A assimetria não distingue nada — só parece distinguir. E numa carga menor, que é configurável, ela vira defeito: a 360 min o piso passa a segurar sempre e a tarde termina em 174 min, **abaixo do piso de 180** que a chamada diz respeitar |
 | 4 | **calculada pela carga** | usa informação que existe e está sendo jogada fora, que é o defeito de verdade. Hoje esse caso fecha a jornada em **8%** dos dias, com desvio médio de 2h40; pela carga vai a **42%**, com 1h28 — exatamente a faixa dos irmãos que já fazem isso (`.XXX` fecha 42%, `..XX` 51%). Atenção: é a única das quatro que muda a ORDEM em que os sorteios são consumidos, porque o retorno precisa ser calculado antes da entrada |
 
-Nenhuma das quatro toca os seis dias reais. Se a 1 for aceita, a linha do
-MANUAL.md que promete *"o dia fecha na jornada exigida, 8h, com variação de alguns
-minutos"* continua tão aproximada quanto hoje — é o piso que a enfraquece, e ele
-fica. Vale saber que essa linha é a única do MANUAL que a medição não sustenta ao
-pé da letra.
+Nenhuma das quatro toca os seis dias reais.
 
-### 2. Batimento na coluna errada em dia de dispensa
-Levantado pelo usuário em 2026-08-10 e **conscientemente deixado manual** — mas
-o custo apareceu na mesma sessão.
+**Duas descobertas durante a implementação**, ambas de defeito real:
+
+1. O piso da tarde não sobrevivia à fuga do minuto redondo: a tarde saía com
+   **179 minutos** contra um piso de 180. É o mesmo defeito que o almoço gerado
+   já teve (`943afbb`), no outro gerador — o deslocamento aplicado como lei,
+   comendo o limite por cima. `avoidRoundMinsEntre` agora recebe `e2+tardeMinima`
+   como piso.
+2. A primeira versão do teste do piso comparava a tarde contra a **própria
+   constante que ele existia para guardar**. Zerar `tardeMinima` deixava a suíte
+   verde, porque toda tarde é ≥ 0. Só a prova por mutação mostrou. Hoje o teste
+   compara contra um número escrito à mão, e mudar o piso de propósito passa por
+   mudar os dois.
+
+Sobre a linha do MANUAL.md que promete *"o dia fecha na jornada exigida, 8h, com
+variação de alguns minutos"*: ela continua aproximada, e é o piso que a
+enfraquece. Como o piso fica, a ressalva fica — está registrada no próprio MANUAL
+agora, em vez de só aqui.
+
+### 2. ~~Batimento na coluna errada em dia de dispensa~~ — feito em 2026-08-13
+
+Levantado pelo usuário em 2026-08-10, deixado manual por uma sessão, e resolvido
+pela sugestão na tela. O histórico abaixo fica porque explica **por que a solução
+tinha de ser essa** — e o "por que a extração erra" continua valendo, já que a
+extração não foi alterada.
 
 Em 03/07/2026 o usuário bateu 09:26 e 13:45 num dia de dispensa de 4h. A
 extração leu o 13:45 como retorno do almoço (E2), então nenhum turno fecha, o
@@ -299,7 +327,25 @@ escolheria E2 também. As janelas foram calibradas para a jornada de 8h; numa
 dispensa de 4h, 13:45 é o fim do expediente. A jornada do ato, porém, só é
 informada **depois**, no navegador: nenhuma correção na extração tem esse número.
 
-#### Recomendação (2026-08-13): sugerir na tela, não preservar a correção
+#### Implementado (2026-08-13): sugerir na tela, não preservar a correção
+
+Verificado no navegador, com uma cópia isolada dos dados: o 03/07 sai de −04:00
+para **+00:19** num clique, o aviso e o botão somem junto, e a frase automática
+volta a ser gerada — *"cumpri 4h19 da jornada de 4h exigida pelo ato, com
+expediente das 09:26 às 13:45"*.
+
+Um defeito só apareceu ali, e não nos testes: o ⚠️ **sobrevivia à própria
+correção**, porque `revisar_motivo` vem do backend e só se recalcula ao
+recarregar. O código já tratava disso para os avisos de jornada; o novo ficou de
+fora. Corrigido, com teste de regressão.
+
+Atenção para uma armadilha do preview: `resolverApiBase` manda as chamadas para
+`http://localhost:8080` sempre que a página **não** é servida nessa porta. Subir
+uma cópia noutra porta e mexer nela faria o front-end escrever no servidor real,
+se ele estivesse no ar. O jeito seguro é sobrescrever `CONFIG.apiBase` para a
+porta da cópia antes de qualquer interação.
+
+O raciocínio da escolha:
 
 Das duas opções, **a sugestão na tela**, e o motivo decisivo é que ela dispensa
 resolver a persistência em vez de tentar resolvê-la.
