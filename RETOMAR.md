@@ -6,9 +6,9 @@ Ponto de partida para uma nova sessão. As regras de operação estão no
 
 ## Estado
 
-**Há trabalho não mergeado na branch `reescrita-adjuster`** (2026-08-11): o
-travamento dos horários gerados e a reescrita do `adjustDay`, dois commits.
-Verde no local; o `-race` só o CI dá. Detalhe no item 1 abaixo.
+**A reescrita do `adjustDay` está na `master`** desde 2026-08-13, pelo PR #2
+(`cf51c8d`), com o CI verde nos três jobs — o `-race` incluído. Detalhe no item 1
+abaixo. A branch `reescrita-adjuster` cumpriu seu papel.
 
 **A refatoração anterior foi mergeada na `master`** em 2026-08-10, pelo PR #1
 (`1d9f31b`). A branch `refatoracao` cumpriu seu papel e não é mais o lugar de
@@ -112,9 +112,22 @@ como argumento na chamada, em vez de ficarem enterradas em cópias:
 
 Sobre o piso ausente do item 1: se a saída para o almoço fosse muito tarde, a
 tarde ficaria negativa e a saída sairia ANTES do retorno. Não acontece — mas só
-porque `reinterpretarPontos` nunca põe um ponto solto depois das 13:30 naqueles
-dois casos. **É uma trava que mora em outra função**, e nada no lugar avisa
-disso.
+porque `janelaSlot` limita até que horas `reinterpretarPontos` aceita chamar um
+ponto de "saída para o almoço". **É uma trava que mora em outra função**, e nada
+no lugar avisava disso.
+
+Desde 2026-08-13 avisa: `rules_adjuster_acoplamento_test.go` varre a ENTRADA de
+`reinterpretarPontos` e quebra, explicando o motivo, se alguém alargar as
+janelas. Confirmado por mutação nas duas bordas.
+
+**A varredura corrigiu o que este documento dizia.** Não é verdade que a saída
+para o almoço pare nas 13:30 nesses dois casos — isso vale só quando há um ponto
+só. Com dois pontos, a reinterpretação decide pela penalidade **somada**, e um par
+como 14:44/14:45 destoa menos como saída-almoço/retorno (74 min) do que como
+retorno/saída (75 min). A saída para o almoço chega, então, às **14:44**, e a
+menor tarde gerada é de **70 minutos**, não 144. A folga é metade do que se
+supunha, e depende de duas bordas da janela — o teto da saída para o almoço e o
+piso da saída da tarde —, não de uma.
 
 #### O mapa que orientou a reescrita (medido em 2026-08-10)
 
@@ -207,8 +220,44 @@ onde cada um mora:
 
 **O que resta neste item** não é código, é decisão: as quatro divergências
 listadas acima. Cada uma muda horário de servidor, e cada uma cabe numa linha da
-chamada em `adjustDay`. Com o snapshot no lugar, mexer numa delas mostra
-exatamente quais dias mudam.
+chamada em `adjustDay`.
+
+**As quatro já estão medidas** (2026-08-13), em
+`pkg/extraction/rules_adjuster_divergencias_test.go`:
+
+```bash
+go test ./pkg/extraction -run TestRelatorio -v   # quais dias mudam e quantos minutos
+go test ./pkg/extraction -run TestSonda -v       # quanto saldo o dia gerado inventa
+```
+
+A régua é uma cópia de `adjustDay` com as quatro constantes como parâmetro, e ela
+se afere antes de medir: com as constantes de hoje tem de devolver o que
+`adjustDay` devolve — 68.936 comparações para os valores, mais as 14 linhas do
+snapshot para a ordem dos sorteios. A medição roda só sobre os dias que a
+produção pode receber (os pontos fixos de `reinterpretarPontos`); sem esse filtro
+o pior caso parecia ser de 660 minutos de saldo inventado, num dia que `Adjust`
+nunca entregaria.
+
+O resumo do que foi medido:
+
+| Divergência | Se unificar | Dias que mudam | Dias reais do usuário |
+|---|---|---|---|
+| 1. piso da tarde | 3h em todos | 46 de 20.076 (0,2%), até 37 min | nenhum muda |
+| | nenhum piso | 840 de 20.076 (4,2%), até 244 min | nenhum muda |
+| 2. faixa da manhã | as duas em 220–260 | 364 (1,8%), até 27 min | nenhum muda |
+| | as duas em 200–240 | 56 (0,3%), até 27 min | nenhum muda |
+| 3. ordem do desvio | sempre antes do piso | **zero** | nenhum muda |
+| 4. entrada em `.X.X` | pela carga | 419 (2,1%), até 186 min | nenhum muda |
+
+**Nenhuma das quatro toca os seis dias reais de junho e julho**, em nenhum dos 7
+regimes de sorteio.
+
+O detalhe que decide a nº 1 não é "quantos minutos muda", é **quanto saldo o dia
+gerado inventa** — porque é isso que vai para o documento assinado. O piso é o
+que quebra o fechamento: com ele, os casos de tarde inventada fecham a jornada em
+84%, 76% e 69% das vezes; **sem piso nenhum, em 95% a 96%**, e o excesso máximo
+cai de +239 min para +22 (que é só o desvio de −5 a +15 mais a fuga do minuto
+redondo).
 
 ### 2. Batimento na coluna errada em dia de dispensa
 Levantado pelo usuário em 2026-08-10 e **conscientemente deixado manual** — mas
@@ -220,16 +269,67 @@ dia acusa −04:00 em vez de +00:19, e a frase automática não sai. A correçã
 arrastar o 13:45 para S1 — **e ela não sobrevive ao reprocessamento do mês**,
 como se viu duas vezes na sessão.
 
-Por que a extração erra: `Adjust` sai fora em dia de dispensa
-(`rules_adjuster.go:81`) sem chamar `reinterpretarPontos`; e mesmo se chamasse,
-as janelas de `janelaSlot` foram calibradas para a jornada de 8h — 13:45 cai
-dentro de E2 com penalidade 0. Numa dispensa de 4h, 13:45 é o fim do
-expediente. A jornada do ato, porém, só é informada **depois**, no navegador:
-uma correção na extração não tem esse número.
+Por que a extração erra: `Adjust` sai fora em dia de dispensa — o early-return
+de `DayTypeDispensa`, na própria `Adjust` — sem chamar `reinterpretarPontos`; e
+mesmo se chamasse não adiantaria. Conferido: com 09:26 e 13:45, pôr 13:45 em E2
+custa penalidade **0** (a janela do retorno vai de 11:30 às 16:00) e pô-lo em S1
+custa **15** (a janela da saída para o almoço fecha às 13:30). A reinterpretação
+escolheria E2 também. As janelas foram calibradas para a jornada de 8h; numa
+dispensa de 4h, 13:45 é o fim do expediente. A jornada do ato, porém, só é
+informada **depois**, no navegador: nenhuma correção na extração tem esse número.
 
-Opções, se ele quiser retomar: sugerir a correção na tela (⚠️ com botão) quando
-tipo é dispensa, a jornada está informada e os pontos não fecham; ou preservar
-a correção manual através do reprocessamento.
+#### Recomendação (2026-08-13): sugerir na tela, não preservar a correção
+
+Das duas opções, **a sugestão na tela**, e o motivo decisivo é que ela dispensa
+resolver a persistência em vez de tentar resolvê-la.
+
+A informação que falta — a jornada do ato — não existe no servidor no momento da
+extração; existe no navegador, digitada pelo usuário. Decidir onde a informação
+está é decidir onde a correção mora. E como o aviso é **derivado** do estado
+atual da edição, ele reaparece sozinho depois de um reprocessamento: a extração
+volta a pôr 13:45 em E2, a tela volta a apontar, e o conserto continua a um
+clique. O problema "a correção não sobrevive ao reprocessamento" deixa de existir
+sem que ninguém precise fazer merge de edição manual com extração nova — que é o
+que a outra opção exigiria, e ela mudaria o significado de reprocessar para
+**todos** os dias, não só os de dispensa.
+
+**Quando aparece.** As quatro condições, todas já calculáveis com o que existe
+em `web/js/domain.js`:
+
+1. o tipo do dia exige jornada por ato (`CARGA_POR_ATO`: dispensa ou expediente
+   reduzido);
+2. a jornada **está informada** (`d.carga > 0`) — sem ela já sai o aviso de hoje,
+   `MSG_CARGA_DISPENSA`, e dois avisos na mesma linha seriam ruído;
+3. há batimento no dia;
+4. **nada fecha**: `minutosTrabalhados(d) === 0`, que é exatamente a função que
+   já soma só os turnos completos.
+
+No 03/07 as quatro batem: dispensa, carga 240, dois batimentos, nenhum turno
+fechado — e é por isso que o dia acusa −04:00.
+
+**O que aparece.** O ⚠️ da linha, pelo mesmo caminho de `avisoDeRevisao`, que já
+existe para juntar o que o backend apurou com o que depende da edição em curso.
+O texto diz o que está errado e o que se propõe, com os horários do dia:
+
+> Nenhum turno fecha: 09:26 e 13:45 estão em colunas que não formam par. Numa
+> jornada de 04:00, o mais provável é que sejam entrada e saída do expediente.
+> **[Ler como 09:26 → 13:45]**
+
+**O que o botão faz.** Move os dois batimentos para E1 e S1 — o mais cedo na
+entrada, o mais tarde na saída —, sem alterar nenhum horário. É o que o usuário
+faz hoje arrastando, e vale para os quatro pares que não fecham
+(`{E1,E2}`, `{E1,S2}`, `{S1,E2}`, `{S1,S2}`); os pares que fecham não disparam o
+aviso. No 03/07 o resultado é 09:26–13:45 = 4h19 contra 4h de jornada: **+00:19**,
+que é o número que o usuário esperava.
+
+**O que ele nunca faz:** aplicar-se sozinho. O batimento é do servidor; o sistema
+pode apontar que a leitura da coluna não fecha, não decidir por ele. E como só
+move colunas, nenhum horário é inventado — o que o mantém fora do território do
+`adjustDay`.
+
+**Limite honesto:** a regra só cobre o dia com **dois** batimentos e nenhum turno
+fechado. Com três, algum turno fecha e o aviso não sai; com um só, não há o que
+propor. São os casos em que a proposta seria adivinhação.
 
 ### 3. Nada mais é urgente
 - `web/styles.css`: ~2100 linhas, 9 `!important` (item 3.5). Baixo retorno.
