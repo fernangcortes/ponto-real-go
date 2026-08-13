@@ -428,9 +428,14 @@ func TestEntradaGeradaNuncaEhDeMadrugada(t *testing.T) {
 func TestHorarioRedondoEhPreferenciaNaoLei(t *testing.T) {
 	const meioDia = 12 * 60 // minuto redondo
 
+	// Semente fixa: o espaço de sorteio aqui é minúsculo (7 passos × 2 sentidos),
+	// então as centenas de repetições o percorrem inteiro de qualquer forma — e
+	// uma falha passa a ser reproduzível em vez de aparecer uma vez em cem.
+	adjuster := newRulesAdjusterComSemente(rules.NewEngineWithDefaults(), 1)
+
 	t.Run("sem limite, foge do redondo", func(t *testing.T) {
 		for i := 0; i < 500; i++ {
-			if got := avoidRoundMins(meioDia); minutoRedondo(got) {
+			if got := adjuster.avoidRoundMins(meioDia); minutoRedondo(got) {
 				t.Fatalf("horário sem restrição continuou redondo: %s", formatMins(got))
 			}
 		}
@@ -439,7 +444,7 @@ func TestHorarioRedondoEhPreferenciaNaoLei(t *testing.T) {
 	t.Run("respeita o limite recebido", func(t *testing.T) {
 		// Só pode andar para trás, no máximo 3 minutos.
 		for i := 0; i < 500; i++ {
-			got := avoidRoundMinsEntre(meioDia, meioDia-3, meioDia)
+			got := adjuster.avoidRoundMinsEntre(meioDia, meioDia-3, meioDia)
 			if got < meioDia-3 || got > meioDia {
 				t.Fatalf("saiu da faixa: %s", formatMins(got))
 			}
@@ -452,7 +457,7 @@ func TestHorarioRedondoEhPreferenciaNaoLei(t *testing.T) {
 	t.Run("cede quando nada cabe", func(t *testing.T) {
 		// Faixa que não admite nenhum deslocamento: o redondo tem de ficar.
 		for i := 0; i < 100; i++ {
-			if got := avoidRoundMinsEntre(meioDia, meioDia, meioDia); got != meioDia {
+			if got := adjuster.avoidRoundMinsEntre(meioDia, meioDia, meioDia); got != meioDia {
 				t.Fatalf("sem espaço para andar, devia ter ficado em %s; veio %s",
 					formatMins(meioDia), formatMins(got))
 			}
@@ -460,7 +465,7 @@ func TestHorarioRedondoEhPreferenciaNaoLei(t *testing.T) {
 	})
 
 	t.Run("não mexe em horário que já não é redondo", func(t *testing.T) {
-		if got := avoidRoundMinsEntre(meioDia+7, semPiso, semTeto); got != meioDia+7 {
+		if got := adjuster.avoidRoundMinsEntre(meioDia+7, semPiso, semTeto); got != meioDia+7 {
 			t.Fatalf("horário não redondo foi alterado: %s", formatMins(got))
 		}
 	})

@@ -6,7 +6,11 @@ Ponto de partida para uma nova sessão. As regras de operação estão no
 
 ## Estado
 
-**A refatoração foi mergeada na `master`** em 2026-08-10, pelo PR #1
+**Há trabalho não mergeado na branch `reescrita-adjuster`** (2026-08-11): o
+travamento dos horários gerados e a reescrita do `adjustDay`, dois commits.
+Verde no local; o `-race` só o CI dá. Detalhe no item 1 abaixo.
+
+**A refatoração anterior foi mergeada na `master`** em 2026-08-10, pelo PR #1
 (`1d9f31b`). A branch `refatoracao` cumpriu seu papel e não é mais o lugar de
 trabalhar.
 
@@ -46,7 +50,7 @@ registro da v1.1.1 com o [MANUAL.md](MANUAL.md).
 Verificação local (tudo verde):
 
 ```bash
-go build ./... && go vet ./... && go test ./...   # 204 testes
+go build ./... && go vet ./... && go test ./...   # 227 testes
 golangci-lint run ./...                            # 0 issues
 npm run lint && npm test                           # 76 testes
 ```
@@ -62,17 +66,57 @@ O CI acrescenta a estes o `go test -race ./...`, que é o portão que só ele d�
 
 ## O que falta, em ordem de valor
 
-### 1. Reescrever o `RulesAdjuster` (item 4.5 do plano)
-`pkg/extraction/rules_adjuster.go`, função `adjustDay`: 12 combinações de
-batimentos nomeadas mais um fallback que registra *"combinação não prevista"*.
-É o código que **inventa horários que vão para um documento assinado por um
-servidor público** — o último ponto do sistema onde algo pode sair arbitrário.
+### 1. ~~Reescrever o `RulesAdjuster`~~ — feito em 2026-08-11
 
-`janelaSlot` e `reinterpretarPontos`, no mesmo arquivo, já mostram o caminho
-declarativo.
+`pkg/extraction/rules_adjuster.go`, função `adjustDay`. É o código que **inventa
+horários que vão para um documento assinado por um servidor público** — o último
+ponto do sistema onde algo pode sair arbitrário. Eram 12 combinações de
+batimentos nomeadas mais um fallback que registrava *"combinação não prevista"*,
+cada uma com a sua própria cópia da aritmética.
 
-Em 2026-08-10 o terreno foi mapeado antes de qualquer reescrita. O que se sabe
-agora foi **medido, não deduzido**:
+Hoje são 14 casos nomeados de duas a quatro linhas cada, e **cada coluna
+inventada nasce num gerador só**. O que muda de um caso para outro é de qual
+horário conhecido o gerador se ancora e em que ordem os quatro se resolvem.
+`adjustDay` caiu de 232 para 99 linhas e o `slog.Warn` sumiu: as duas
+combinações que caíam no fallback agora têm nome e comentário próprios.
+
+**O que segurou a reescrita** foi uma comparação com a implementação anterior —
+não os testes de invariante, que não olham número. Com um sorteio que não guarda
+estado (sempre o mínimo da faixa, sempre o máximo, sempre o meio, e mais quatro
+posições), `adjustDay` vira função pura dos batimentos, e as duas implementações
+puderam ser postas lado a lado sobre **as 14 combinações × 24 horários de borda
+= 29.544 dias, em 7 regimes de sorteio: 206.808 comparações, zero diferenças.**
+As ferramentas dessa comparação ficaram em `rules_adjuster_grade_test.go`; a
+cópia do código antigo foi apagada depois de servir.
+
+E o snapshot das 14 linhas **não mudou nem um minuto**, o que diz mais do que a
+comparação: a ordem em que os dados são jogados também foi preservada, então a
+equivalência vale sob o sorteio de verdade e não só sob os determinísticos.
+
+#### As divergências que sobraram, à vista e sem decisão
+
+A reescrita **não unificou constante nenhuma**, de propósito: unificar muda
+horário em dia de servidor, e isso é decisão de quem assina. Elas agora aparecem
+como argumento na chamada, em vez de ficarem enterradas em cópias:
+
+1. **Piso da tarde** — 3h em cinco casos, 2h no dia em que só o retorno do
+   almoço foi batido, e **nenhum** nos dois dias sem âncora de manhã.
+2. **Faixa da manhã sorteada solta** — 220–260 min num caso, 200–240 noutro,
+   para a mesma pergunta.
+3. **Desvio de −5 a +15 min** — entra antes de conferir o piso em todos os
+   casos, menos no dia em que só a entrada foi batida, onde entra depois. Ali a
+   tarde pode terminar alguns minutos abaixo do piso.
+4. **Informação disponível e ignorada** — no dia com as duas saídas (`.X.X`), a
+   entrada é sorteada solta embora a tarde seja conhecida e desse para calculá-la
+   pela carga, que é o que os outros casos com tarde conhecida fazem.
+
+Sobre o piso ausente do item 1: se a saída para o almoço fosse muito tarde, a
+tarde ficaria negativa e a saída sairia ANTES do retorno. Não acontece — mas só
+porque `reinterpretarPontos` nunca põe um ponto solto depois das 13:30 naqueles
+dois casos. **É uma trava que mora em outra função**, e nada no lugar avisa
+disso.
+
+#### O mapa que orientou a reescrita (medido em 2026-08-10)
 
 **Os 13 caminhos são 4 decisões.** Um gerador por coluna, reescrito de 3 a 6
 vezes, com constantes que divergiram entre as cópias por acidente:
@@ -96,24 +140,58 @@ diz *"combinação não prevista"*, o que faz parecer defeito o que é rotina.
 junho e julho: "falta a entrada" (01/06), "falta a saída" (02, 17 e 22/06) e
 "falta a saída para o almoço" (16/06 e 10/07). O risco está concentrado neles.
 
-**Os testes NÃO protegem a reescrita.** Esta é a descoberta que muda o plano.
-Todos os 13 ramos são executados, mas 11 só pela grade exaustiva
-(`TestHorariosGeradosSempreValidos`), que confere três invariantes — nada passa
-das 23:59, ordem cronológica, nenhum batimento real some — e **nunca olha o
-número gerado**.
+**Os testes não protegiam a reescrita** — e é por isso que o primeiro passo não
+foi reescrever. Todos os 13 ramos eram executados, mas 11 só pela grade
+exaustiva (`TestHorariosGeradosSempreValidos`), que confere três invariantes —
+nada passa das 23:59, ordem cronológica, nenhum batimento real some — e **nunca
+olhava o número gerado**.
 
-> Prova por mutação: somar 45 minutos a toda saída inventada pelo ramo "falta a
-> saída" deixa `go test ./...` inteiramente verde. São 2h15 a mais em junho, no
-> documento assinado, sem nenhum portão reclamar.
+> Prova por mutação, na época: somar 45 minutos a toda saída inventada pelo ramo
+> "falta a saída" deixava `go test ./...` inteiramente verde. São 2h15 a mais em
+> junho, no documento assinado, sem nenhum portão reclamar.
 
-**Portanto o primeiro passo da reescrita não é reescrever.** É travar os
-valores de hoje: semente fixa no sorteio (`randBetween` usa o `math/rand`
-global, então não há como reproduzir uma execução) e snapshot dos 13 ramos. Sem
-isso a suíte fica verde tanto para o certo quanto para o errado, e a reescrita
-é inverificável.
+#### Feito em 2026-08-11: os valores estão travados
+
+O sorteio deixou de depender do `math/rand` global. Agora vive no próprio
+ajustador (`RulesAdjuster.rng`), semeado pelo relógio em produção — horário
+inventado tem de variar — e por `newRulesAdjusterComSemente` no teste. Em troca,
+um ajustador não pode ser compartilhado entre goroutines; o serviço já cria um
+por folha, então nada mudou na prática.
+
+Sobre isso, `pkg/extraction/rules_adjuster_snapshot_test.go`: uma tabela com o
+dia que entra e o dia inteiro que sai, para **as 14 combinações possíveis de
+batimentos** — não 13. A ficha tem 4 colunas, logo 16 combinações; o dia vazio e
+o dia completo o `adjustDay` nunca vê. As outras 14 são os caminhos que ele tem,
+e `TestSnapshotCobreTodaCombinacaoPossivel` impede que um fique de fora. Os dois
+ramos que o `.md` anterior contava como "fallback" são, na verdade, duas
+combinações distintas cair no mesmo lugar: só a saída para o almoço, ou a saída
+e o retorno.
+
+Onde havia dado real, ele foi usado: 01/06 (falta a entrada), 02/06 (falta a
+saída) e 16/06 (falta a saída para o almoço) — os únicos ramos que
+comprovadamente já rodaram na vida real.
+
+A mesma mutação de antes agora quebra o teste, com o dia e os dois horários lado
+a lado:
+
+```
+--- FAIL: TestSnapshotDosHorariosGerados/falta_a_saída_da_tarde_(02/06_real)
+    esperado:  [09:11 12:36 13:37 18:19]
+    veio:      [09:11 12:36 13:37 19:04]
+```
+
+Uma segunda mutação, na entrada arbitrada (das 08:00 para as 09:00), quebra os
+dois casos sem âncora de manhã. Cobertura conferida por mutação, não por
+`-coverprofile`.
+
+**O snapshot não diz que os horários são os certos; diz que são os de hoje.**
+Quando a mudança for proposital, o jeito de atualizar está escrito no cabeçalho
+do arquivo: rodar, conferir caso a caso que o dia novo faz sentido (ordem,
+almoço, piso das 07:00, carga), e só então trocar o valor.
 
 Dois defeitos dessa mesma família já foram corrigidos e têm teste. A reescrita
-não pode perdê-los:
+os preservou — `naoDeMadrugada` e `avoidRoundMinsEntre` são hoje o único lugar
+onde cada um mora:
 
 - **Entrada de madrugada** (`88b3f19`). O ramo do dia em que só o retorno do
   almoço foi batido era o único sem a trava das 07:00: um retorno às 11:30
@@ -127,7 +205,10 @@ não pode perdê-los:
   redondo quando nada cabe. **A regra é preferência, não lei**: o redondo
   aparece em 0,31% dos horários gerados.
 
-**Merecia uma sessão dedicada, com contexto limpo.**
+**O que resta neste item** não é código, é decisão: as quatro divergências
+listadas acima. Cada uma muda horário de servidor, e cada uma cabe numa linha da
+chamada em `adjustDay`. Com o snapshot no lugar, mexer numa delas mostra
+exatamente quais dias mudam.
 
 ### 2. Batimento na coluna errada em dia de dispensa
 Levantado pelo usuário em 2026-08-10 e **conscientemente deixado manual** — mas
