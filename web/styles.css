@@ -1343,6 +1343,34 @@ input.just-input:focus {
     font-size: 11px;
 }
 
+/* Proposta de leitura das colunas, no dia em que nenhum turno fecha.
+   É sugestão, não correção automática: fica com a cor de aviso, e não com a de
+   ação confirmada, para não parecer que o sistema já decidiu. */
+.proposta-colunas {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--warning);
+    background: transparent;
+    border: 1px solid var(--warning);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.proposta-colunas:hover {
+    color: var(--bg-secondary);
+    background: var(--warning);
+}
+
+.proposta-colunas:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 /* Frase padrão editável das justificativas */
 .just-template-row {
     display: flex;

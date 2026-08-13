@@ -214,7 +214,8 @@ falta. As garantias que ele respeita:
 | Entrada da manhã gerada nunca é de madrugada | **≥ 07:00** |
 | Almoço gerado respeita o mínimo legal | **≥ 60 min** |
 | Almoço gerado é sorteado na faixa | 60 – 75 min |
-| O dia fecha na jornada exigida | 8h, com variação de alguns minutos |
+| Tarde gerada nunca é curta demais | **≥ 3h** |
+| O dia fecha na jornada exigida | 8h, com variação de alguns minutos — **salvo quando o piso da tarde segura** |
 | Nenhum horário passa da meia-noite | ≤ 23:59 |
 | Horários não caem sempre em minuto redondo | `:00 :15 :30 :45` são evitados |
 
@@ -223,6 +224,17 @@ que cai sempre em `:00` ou `:30` denuncia que foi inventado. Mas quando fugir do
 redondo quebraria outra regra — encurtar o almoço abaixo do mínimo, por
 exemplo —, o sistema aceita o redondo. Na prática ele aparece em cerca de **0,3%**
 dos horários gerados.
+
+**Sobre o piso da tarde e o que ele custa:** a tarde gerada é, em princípio, o
+que falta para fechar a jornada depois da manhã. Quando a manhã batida foi muito
+longa, isso daria uma tarde de poucos minutos — servidor que volta do almoço e
+sai em seguida —, e em casos extremos daria uma tarde negativa, com a saída antes
+do retorno. Por isso ela nunca sai com menos de 3 horas.
+
+O preço é este, e vale saber: **quando o piso segura, o dia gerado fecha acima da
+jornada**, e a diferença é crédito que o sistema acrescentou. Acontece nos dias de
+manhã longa — cerca de 13% dos casos em que só falta a saída da tarde. **Confira o
+saldo desses dias**: o horário é plausível, mas o crédito não veio da folha.
 
 **Quando o horário estourar a meia-noite:** se um batimento real muito tarde
 fizer a geração passar das 23:59, o valor é limitado ao fim do dia e a linha
@@ -394,6 +406,26 @@ ela, e a frase automática passa a sair.
 | *"Expediente reduzido: confira a carga horária do dia definida pelo decreto."* | idem, para decreto | preencha a carga na linha |
 | *"Nenhum horário foi lido para este dia. Confira a folha original: os batimentos podem ter se perdido na extração."* | dia justificado que veio **sem batimento algum** | **abra a folha original** |
 | *"Horário gerado ultrapassaria a meia-noite; confira os pontos originais deste dia."* | um batimento real muito tarde estourou o dia | confira se o horário da folha está certo |
+| *"Nenhum turno fecha: os batimentos deste dia estão em colunas que não formam par de entrada e saída."* | dia de jornada por ato, com a jornada já informada, em que nenhuma entrada tem a sua saída | veja o botão de proposta na mesma linha |
+
+**Sobre o último:** ele só é possível depois de a jornada do ato ser informada, e
+é aí que está a razão de existir. Num dia de dispensa de 4h, um batimento às
+13:45 é o fim do expediente; num dia comum de 8h, é a volta do almoço. A leitura
+automática não tem como saber qual dos dois é, porque a jornada do ato só é
+informada por você, depois — então ela às vezes põe o horário na coluna errada,
+nenhum turno fecha, e o dia acusa a jornada inteira como débito.
+
+Quando isso acontece e há **dois** batimentos, aparece ao lado do seletor de tipo
+um botão como **"Ler como 09:26 → 13:45"**. Ele move os dois para entrada e saída
+do expediente — é o que você faria arrastando. **Nenhum horário é alterado**, só a
+coluna em que cada um é lido, e nada acontece sem você clicar: o batimento é seu.
+
+Com um batimento só o aviso aparece sem botão, porque não há par a formar e
+adivinhar o horário que falta seria inventar ponto.
+
+A correção não é guardada, e não precisa ser: se você reprocessar o mês, a
+leitura volta a errar a coluna, o aviso volta a aparecer e o botão volta a estar
+lá.
 
 O terceiro é o mais grave e por isso tem prioridade sobre os outros. Na ficha do
 SFR, dias de dispensa quase sempre têm horário; vir sem nenhum costuma

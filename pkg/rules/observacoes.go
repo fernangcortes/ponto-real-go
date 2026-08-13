@@ -20,6 +20,21 @@ const MsgRevisarCargaDispensa = "Dispensa: informe a jornada exigida neste dia, 
 // leitura perdeu os batimentos, e perder ponto real em silêncio é inaceitável.
 const MsgRevisarSemHorario = "Nenhum horário foi lido para este dia. Confira a folha original: os batimentos podem ter se perdido na extração."
 
+// MsgRevisarColunasNaoFecham avisa que os batimentos do dia existem mas não
+// formam nenhum par de entrada e saída — logo o dia acusa a jornada inteira como
+// débito, mesmo tendo sido cumprida.
+//
+// A causa típica é a extração ter lido um horário na coluna errada, e ela erra
+// porque as janelas de plausibilidade foram calibradas para a jornada de 8h. No
+// dia 03/07/2026, uma dispensa de 4h com 09:26 e 13:45, o 13:45 caiu no retorno
+// do almoço: nenhum turno fechou, o dia acusou −04:00 em vez de +00:19 e a frase
+// automática não saiu.
+//
+// O aviso só é possível DEPOIS de a jornada do ato ser informada, que é quando
+// se sabe que 13:45 é o fim do expediente e não a volta do almoço. Por isso ele
+// não cabe na extração: lá esse número ainda não existe.
+const MsgRevisarColunasNaoFecham = "Nenhum turno fecha: os batimentos deste dia estão em colunas que não formam par de entrada e saída."
+
 // ObsKind classifica o significado semântico de uma observação/ocorrência
 // da ficha de frequência (coluna OBSERVAÇÕES/OCORRÊNCIAS do SFR).
 type ObsKind string

@@ -84,10 +84,15 @@ var casosDoSnapshot = []casoDeSnapshot{
 		// O caso que revelou a entrada de madrugada (88b3f19): aqui o piso das
 		// 07:00 entra em ação e a manhã é RECONTADA a partir dele. Sem isso a
 		// tarde compensaria uma manhã que não aconteceu.
+		//
+		// Mudou em 2026-08-13, com a unificação da faixa da manhã sorteada solta
+		// (era 220–260 aqui e 200–240 nos outros dois lugares que fazem a mesma
+		// pergunta): de [07:27 10:22 11:33 16:50] para o valor abaixo. O dia
+		// passou a fechar em +2 min contra a jornada, em vez de +12.
 		ramo:     "só o retorno do almoço",
 		mascara:  "..X.",
 		batidos:  [4]string{"", "", "11:33", ""},
-		esperado: [4]string{"07:27", "10:22", "11:33", "16:50"},
+		esperado: [4]string{"07:16", "10:22", "11:33", "16:29"},
 		bloqueio: [4]int{0, 0, 1, 0},
 	},
 	{
@@ -148,10 +153,18 @@ var casosDoSnapshot = []casoDeSnapshot{
 		bloqueio: [4]int{1, 0, 1, 0},
 	},
 	{
+		// A linha que mais mudou em 2026-08-13, e a que mostra por que a mudança
+		// valia a pena. A tarde aqui é conhecida (10:47 e 17:52 são reais), mas a
+		// entrada era sorteada solta, ignorando-a: saía [07:07 10:47 11:52 17:52],
+		// que são 220 min de manhã mais 360 de tarde — um dia de 9h40 contra uma
+		// jornada de 8h, ou seja +1h40 de saldo que o sistema inventou sozinho.
+		//
+		// Calculando a entrada pela carga, como fazem os outros casos de tarde
+		// conhecida, o dia fecha em +2 min.
 		ramo:     "as duas saídas, nenhuma entrada",
 		mascara:  ".X.X",
 		batidos:  [4]string{"", "10:47", "", "17:52"},
-		esperado: [4]string{"07:07", "10:47", "11:52", "17:52"},
+		esperado: [4]string{"08:39", "10:47", "11:58", "17:52"},
 		bloqueio: [4]int{0, 1, 0, 1},
 	},
 	{

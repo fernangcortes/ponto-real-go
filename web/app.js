@@ -11,7 +11,7 @@ import { CONFIG, resolverApiBase, CAMPOS_HORARIO, MESES_NOMES, TIPO_POR_SELECAO,
 import { t2m, m2t, m2tUnsigned, isTimeValid, esc, copiavel, clamp, randBetween, avoidRoundMins } from './js/util.js';
 import {
     classifyDay, tipoSelecionado, isAutoOccurrence, isOccurrenceDay,
-    camposFaltantes, calcularTotais, avisoDeRevisao,
+    camposFaltantes, calcularTotais, avisoDeRevisao, propostaDeColunas,
     isWeekend, deWire, paraWire, minutosTrabalhados,
 } from './js/domain.js';
 import { getJustTemplate, salvarJustTemplate, JUST_TEMPLATE_PADRAO,
@@ -397,6 +397,12 @@ document.addEventListener('click', (e) => {
     const guardar = e.target.closest('[data-guardar-frase]');
     if (guardar) {
         guardarFraseDoDia(Number(guardar.dataset.guardarFrase));
+        return;
+    }
+
+    const alinhar = e.target.closest('[data-alinhar-colunas]');
+    if (alinhar) {
+        alinharColunasDoDia(Number(alinhar.dataset.alinharColunas));
     }
 });
 
@@ -727,6 +733,40 @@ const updateAll = () => {
     renderStatusBar(totais);
 };
 
+// alinharColunasDoDia aplica a proposta do botão: lê os dois batimentos como
+// entrada e saída do expediente.
+//
+// Nenhum horário muda de valor — só de coluna. É exatamente o que o usuário faz
+// arrastando, e a marca de "batimento real" viaja junto com o horário: quem era
+// do servidor continua sendo, e as colunas que esvaziam ficam marcadas como
+// apagadas de propósito, para nada as repreencher.
+//
+// Não sobrevive a um reprocessamento do mês, e não precisa: a extração volta a
+// errar a coluna, o aviso volta a aparecer e o botão volta a estar aqui. É o que
+// torna esta correção diferente de uma edição manual perdida.
+const alinharColunasDoDia = (idx) => {
+    const d = daysData[idx];
+    const proposta = propostaDeColunas(d, classifyDay(d));
+    if (!proposta) return;
+
+    saveState(idx);
+
+    const { entrada, saida } = proposta;
+    d.e1 = entrada.valor;
+    d.s1 = saida.valor;
+    d.e2 = '';
+    d.s2 = '';
+    d.o = [entrada.real ? 1 : 0, saida.real ? 1 : 0, 0, 0];
+    d.limpos = [2, 3];
+
+    const container = document.getElementById('tablesContainer');
+    container.innerHTML = '';
+    renderTables();
+    updateAll();
+    scheduleSave();
+    showToast(`Dia ${d.d}: lido como ${entrada.valor} → ${saida.valor}.`, 'success');
+};
+
 // --- Sync Change (Two-Way Binding) — Feature 4: sem confirm(), com auto-fill ---
 const syncChange = (idx, field, newVal) => {
     const d = daysData[idx];
@@ -888,6 +928,18 @@ const renderTables = () => {
             // branco o dia fica neutro em vez de o sistema arbitrar uma jornada.
             const cargaHtml = CARGA_POR_ATO.includes(selected) ? controleDeCarga(d, i, selected) : '';
 
+            // Nenhum turno fecha e os dois batimentos cabem como entrada e saída
+            // do expediente: propõe a leitura, sem aplicá-la. O batimento é do
+            // servidor — o sistema pode apontar que a coluna não fecha, não
+            // decidir por ele.
+            const proposta = propostaDeColunas(d, tipo);
+            const propostaHtml = proposta
+                ? `<button type="button" class="proposta-colunas" data-alinhar-colunas="${i}"
+                        title="${esc(`Numa jornada de ${m2tUnsigned(d.carga)}, o mais provável é que ${proposta.entrada.valor} e ${proposta.saida.valor} sejam a entrada e a saída do expediente, e não um par de almoço. Nenhum horário será alterado: só a coluna em que cada um é lido.`)}">
+                        Ler como ${esc(proposta.entrada.valor)} → ${esc(proposta.saida.valor)}
+                   </button>`
+                : '';
+
             // Toggle manual da seção "Ocorrência" do documento Gerar SEI.
             // Reflete o estado efetivo (automático ou sobreposto) e alterna
             // entre incluir/excluir manualmente este dia.
@@ -908,6 +960,7 @@ const renderTables = () => {
                     ${opcoesTipo}
                 </select>
                 ${cargaHtml}
+                ${propostaHtml}
                 ${occHtml}
                 ${d.mot ? `<span class="mot-text" title="${esc(d.mot)}">${esc(d.mot.substring(0, 60))}${d.mot.length > 60 ? '...' : ''}</span>` : ''}
             </td>`;

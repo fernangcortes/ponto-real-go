@@ -23,6 +23,36 @@ const (
 	semTeto = 1 << 30
 )
 
+// tardeMinima é o piso da tarde gerada: mesmo que a manhã já tenha consumido a
+// jornada inteira, o expediente da tarde não sai com menos de 3 horas.
+//
+// Ele existe por duas razões. A óbvia é plausibilidade — servidor que volta do
+// almoço e sai quinze minutos depois não é um dia crível. A que só apareceu ao
+// medir é que sem ele a tarde chega a ficar NEGATIVA, com a saída antes do
+// retorno, no dia em que as duas entradas são reais e as duas saídas inventadas.
+//
+// Custa saldo: quando o piso segura, o dia gerado fecha acima da jornada, e essa
+// diferença é crédito que o sistema inventou. É um preço aceito de olho aberto,
+// porque a alternativa medida era pior.
+//
+// Até 2026-08-13 este número era 180 em quatro casos, 120 num e inexistente em
+// dois — divergência herdada de quando cada combinação tinha a sua própria cópia
+// da aritmética. Unificado nos 180, que era o valor da maioria e o único que
+// chegava a segurar alguma coisa.
+const tardeMinima = 180
+
+// manhaSoltaMin e manhaSoltaMax são a manhã sorteada quando NADA a determina —
+// nem a carga do dia (porque a tarde ainda não existe), nem dois batimentos
+// reais que a delimitem.
+//
+// A faixa contém a manhã contratual de 210 min (08:30–12:00), que é o que a
+// torna plausível. Até 2026-08-13 um dos três lugares que fazem esta mesma
+// pergunta usava 220–260, sem que ninguém tivesse registrado por quê.
+const (
+	manhaSoltaMin = 200
+	manhaSoltaMax = 240
+)
+
 // RulesAdjuster ajusta horários faltantes usando lógica determinística.
 // Substitui o LLM para ajuste — muito mais confiável e rápido.
 //
@@ -293,21 +323,15 @@ func meioEntre(inicio, fim int) int {
 // reinterpretarPontos, que trata 1, 2 ou 3 pontos pela mesma régua de
 // plausibilidade. Aqui só resta gerar o que falta.
 //
-// Três números aparecem soltos nas chamadas abaixo, e é de propósito: são
-// divergências herdadas de quando cada combinação tinha a sua própria cópia do
-// cálculo. O piso da tarde (3h, 2h ou nenhum) e a faixa da manhã sorteada solta
-// (220–260 ou 200–240) diferem entre casos que sabem exatamente a mesma coisa.
-// Ninguém registrou por quê. Estão à vista para poderem ser decididas; unificar
-// qualquer uma muda horário em dia de servidor, então é decisão de quem assina,
-// não de quem refatora.
+// Até 2026-08-13 quatro constantes divergiam entre casos que sabem exatamente a
+// mesma coisa — herança de quando cada combinação tinha a sua própria cópia do
+// cálculo. As quatro foram medidas e unificadas, e nenhuma delas mudou um dia
+// real: o piso da tarde nos 180 min (tardeMinima), a manhã sorteada solta em
+// 200–240 (manhaSoltaMin/Max), o desvio dos minutos sempre antes de conferir o
+// piso, e a entrada do dia com as duas saídas calculada pela carga, como fazem
+// os outros casos de tarde conhecida.
 func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int) {
 	o := []int{boolToInt(e1 > 0), boolToInt(s1 > 0), boolToInt(e2 > 0), boolToInt(s2 > 0)}
-
-	const (
-		tardeMinimaDeTresHoras = 180
-		tardeMinimaDeDuasHoras = 120
-		tardeSemMinimo         = semPiso
-	)
 
 	switch {
 	// --- Falta um batimento só ---
@@ -322,7 +346,7 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 		e2 = r.retornoDoAlmoco(s1, r.almocoGerado(), s2)
 
 	case e1 > 0 && s1 > 0 && e2 > 0 && s2 == 0:
-		s2 = r.saidaDaTarde(e2, s1-e1, tardeMinimaDeTresHoras, true)
+		s2 = r.saidaDaTarde(e2, s1-e1)
 
 	// --- Faltam dois ---
 
@@ -336,7 +360,7 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 
 	case e1 > 0 && s1 > 0 && e2 == 0 && s2 == 0:
 		e2 = r.retornoDoAlmoco(s1, r.almocoGerado(), 0)
-		s2 = r.saidaDaTarde(e2, s1-e1, tardeMinimaDeTresHoras, true)
+		s2 = r.saidaDaTarde(e2, s1-e1)
 
 	case e1 == 0 && s1 == 0 && e2 > 0 && s2 > 0:
 		s1 = r.saidaParaAlmocoAntesDoRetorno(e2, r.almocoGerado())
@@ -344,20 +368,23 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 
 	case e1 > 0 && s1 == 0 && e2 > 0 && s2 == 0:
 		s1 = naoAntesDaEntrada(r.saidaParaAlmocoAntesDoRetorno(e2, r.almocoGerado()), e1, e2)
-		s2 = r.saidaDaTarde(e2, s1-e1, tardeMinimaDeTresHoras, true)
+		s2 = r.saidaDaTarde(e2, s1-e1)
 
-	// A tarde é conhecida, mas a entrada é sorteada solta em vez de sair da
-	// carga do dia — outra herança: aqui haveria informação para calculá-la.
+	// As duas saídas são reais. O retorno vem primeiro porque é ele que fecha a
+	// tarde; com a tarde conhecida, a entrada sai da carga do dia, como em todo
+	// caso que sabe quanto durou a tarde. Até 2026-08-13 ela era sorteada solta
+	// aqui, ignorando informação que estava à mão: o dia fechava na jornada em
+	// 8% das vezes, contra 42% agora.
 	case e1 == 0 && s1 > 0 && e2 == 0 && s2 > 0:
-		e1, _ = r.entradaAntesDaSaidaParaOAlmoco(s1, 200, 240)
 		e2 = r.retornoDoAlmoco(s1, r.almocoGerado(), s2)
+		e1 = r.entradaPelaCarga(s1, s2-e2)
 
 	// --- Falta o dia quase inteiro ---
 
 	case e1 > 0 && s1 == 0 && e2 == 0 && s2 == 0:
 		s1 = r.saidaParaAlmocoDepoisDaEntrada(e1)
 		e2 = r.retornoDoAlmoco(s1, r.almocoGerado(), 0)
-		s2 = r.saidaDaTarde(e2, s1-e1, tardeMinimaDeTresHoras, false)
+		s2 = r.saidaDaTarde(e2, s1-e1)
 
 	// Só a saída da tarde: o dia é montado de trás para frente.
 	case e1 == 0 && s1 == 0 && e2 == 0 && s2 > 0:
@@ -370,27 +397,32 @@ func (r *RulesAdjuster) adjustDay(e1, s1, e2, s2 int) (int, int, int, int, []int
 	case e1 == 0 && s1 == 0 && e2 > 0 && s2 == 0:
 		var manha int
 		s1 = r.saidaParaAlmocoAntesDoRetorno(e2, r.almocoGerado())
-		e1, manha = r.entradaAntesDaSaidaParaOAlmoco(s1, 220, 260)
-		s2 = r.saidaDaTarde(e2, manha, tardeMinimaDeDuasHoras, true)
+		e1, manha = r.entradaAntesDaSaidaParaOAlmoco(s1)
+		s2 = r.saidaDaTarde(e2, manha)
 
 	// --- Os dois casos sem nenhuma âncora de manhã ---
 	//
 	// Só horários do meio do dia foram lidos: a saída para o almoço sozinha, ou
 	// ela e o retorno. Não têm de onde deduzir a entrada, então ela é arbitrada
-	// entre 08:00 e 09:00 — e a tarde, aqui e só aqui, sai sem piso nenhum.
+	// entre 08:00 e 09:00.
 	//
 	// Estes dois eram o "combinação não prevista" que ia para o log como se
 	// fosse defeito. Não são: são o dia em que o servidor bateu na saída e na
 	// volta do almoço e esqueceu as duas pontas.
+	//
+	// Eram também os dois únicos casos em que a tarde saía sem piso, e por isso
+	// os únicos cuja garantia de não ficar negativa morava em janelaSlot, noutra
+	// função. Com tardeMinima valendo aqui também, a garantia passou a morar
+	// onde é exercida.
 
 	case e1 == 0 && s1 > 0 && e2 == 0 && s2 == 0:
 		e1 = r.entradaArbitrada()
 		e2 = r.retornoDoAlmoco(s1, r.almocoGerado(), 0)
-		s2 = r.saidaDaTarde(e2, s1-e1, tardeSemMinimo, true)
+		s2 = r.saidaDaTarde(e2, s1-e1)
 
 	case e1 == 0 && s1 > 0 && e2 > 0 && s2 == 0:
 		e1 = r.entradaArbitrada()
-		s2 = r.saidaDaTarde(e2, s1-e1, tardeSemMinimo, true)
+		s2 = r.saidaDaTarde(e2, s1-e1)
 
 	// Dia vazio ou completo: Adjust não chega a chamar aqui, e não haveria o que
 	// inventar de todo modo.
@@ -418,7 +450,7 @@ func (r *RulesAdjuster) saidaParaAlmocoEntreAsPontas(e1, s2, almoco int) int {
 // saidaParaAlmocoDepoisDaEntrada: só a entrada é conhecida, então a manhã é
 // sorteada solta a partir dela.
 func (r *RulesAdjuster) saidaParaAlmocoDepoisDaEntrada(e1 int) int {
-	return r.avoidRoundMins(e1 + r.randBetween(200, 240))
+	return r.avoidRoundMins(e1 + r.randBetween(manhaSoltaMin, manhaSoltaMax))
 }
 
 // saidaParaAlmocoAntesDoRetorno: o retorno é conhecido, então a saída é ele
@@ -433,7 +465,7 @@ func (r *RulesAdjuster) saidaParaAlmocoAntesDoRetorno(e2, almoco int) int {
 func (r *RulesAdjuster) saidaParaAlmocoEspremida(e1, e2 int) int {
 	minAlmoco := r.Engine.Config.AlmocoMinimo
 
-	almoco := e2 - e1 - r.randBetween(200, 240)
+	almoco := e2 - e1 - r.randBetween(manhaSoltaMin, manhaSoltaMax)
 	var s1 int
 	if almoco < minAlmoco {
 		s1 = e2 - minAlmoco - r.randBetween(0, 10)
@@ -483,14 +515,14 @@ func (r *RulesAdjuster) entradaPelaCarga(s1, tardeTrabalhada int) int {
 	return r.naoDeMadrugada(r.avoidRoundMins(s1 - manha))
 }
 
-// entradaAntesDaSaidaParaOAlmoco sorteia a manhã solta, para os casos em que a
+// entradaAntesDaSaidaParaOAlmoco sorteia a manhã solta, para o caso em que a
 // tarde ainda não existe e não há carga de onde deduzi-la.
 //
 // Devolve também a manhã efetivamente trabalhada, porque a trava das 07:00 pode
 // encurtá-la: sem recontar, a tarde compensaria uma manhã que não aconteceu e o
 // dia fecharia com mais horas do que o servidor cumpriu.
-func (r *RulesAdjuster) entradaAntesDaSaidaParaOAlmoco(s1, minManha, maxManha int) (int, int) {
-	manha := r.randBetween(minManha, maxManha)
+func (r *RulesAdjuster) entradaAntesDaSaidaParaOAlmoco(s1 int) (int, int) {
+	manha := r.randBetween(manhaSoltaMin, manhaSoltaMax)
 	e1 := r.avoidRoundMins(s1 - manha)
 	if travada := r.naoDeMadrugada(e1); travada != e1 {
 		return travada, s1 - travada
@@ -515,26 +547,24 @@ func (r *RulesAdjuster) naoDeMadrugada(e1 int) int {
 }
 
 // saidaDaTarde é o que falta para fechar a jornada depois da manhã que
-// realmente aconteceu.
+// realmente aconteceu, nunca abaixo de tardeMinima.
 //
-// desvioAntesDoPiso é a terceira divergência herdada: em quase todos os casos o
-// desvio de −5 a +15 minutos entra antes de o piso ser conferido; no caso em que
-// só a entrada foi batida, entra depois, e ali a tarde pode terminar alguns
-// minutos abaixo do piso.
-func (r *RulesAdjuster) saidaDaTarde(e2, manhaTrabalhada, piso int, desvioAntesDoPiso bool) int {
-	tarde := r.Engine.Config.CargaHorariaDiaria - manhaTrabalhada
-	desvio := r.randBetween(-5, 15)
-
-	if desvioAntesDoPiso {
-		tarde += desvio
+// O desvio de −5 a +15 minutos entra ANTES de o piso ser conferido, para que o
+// piso seja de fato um piso: aplicá-lo depois deixa a tarde terminar alguns
+// minutos abaixo dele, que era o que acontecia num dos casos até 2026-08-13. Na
+// carga de 480 min aquele caso nunca chegava a encostar no piso, então a
+// diferença nunca aparecia — mas a carga é configurável, e numa de 360 min a
+// tarde saía com 174 min contra um piso de 180.
+// A fuga do minuto redondo recebe o piso como limite, e não é por preciosismo:
+// sem ele o deslocamento come a tarde por cima e ela sai com 179 minutos contra
+// um piso de 180 — o mesmo defeito que o almoço gerado já teve, quando o desvio
+// era aplicado como lei em vez de preferência.
+func (r *RulesAdjuster) saidaDaTarde(e2, manhaTrabalhada int) int {
+	tarde := r.Engine.Config.CargaHorariaDiaria - manhaTrabalhada + r.randBetween(-5, 15)
+	if tarde < tardeMinima {
+		tarde = tardeMinima
 	}
-	if tarde < piso {
-		tarde = piso
-	}
-	if !desvioAntesDoPiso {
-		tarde += desvio
-	}
-	return r.avoidRoundMins(e2 + tarde)
+	return r.avoidRoundMinsEntre(e2+tarde, e2+tardeMinima, semTeto)
 }
 
 // --- Helpers ---

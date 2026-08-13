@@ -102,6 +102,7 @@ func TestRegrasCompartilhadas(t *testing.T) {
 			esperado := map[string]string{
 				"dispensa": rules.MsgRevisarCargaDispensa,
 				"reduzido": rules.MsgRevisarCargaReduzida,
+				"colunas":  rules.MsgRevisarColunasNaoFecham,
 			}[caso.AvisoCarga]
 			if dia.RevisarMotivo != esperado {
 				t.Errorf("aviso = %q; esperado %q", dia.RevisarMotivo, esperado)

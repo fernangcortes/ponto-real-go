@@ -372,6 +372,18 @@ func (e *Engine) CalculateSummary(dias []models.DayRecord) models.TimesheetSumma
 				d.Revisar = false
 				d.RevisarMotivo = ""
 			}
+
+			// Com a jornada informada e batimentos na folha, é possível notar o
+			// que antes não era: se nenhum turno fecha, o dia vai acusar a jornada
+			// inteira como débito por um erro de coluna, não por falta ao serviço.
+			//
+			// Só aqui há informação para isso. A extração não tem a jornada do
+			// ato, e sem ela 13:45 num dia de 4h é indistinguível de um retorno de
+			// almoço num dia de 8h.
+			if d.RevisarMotivo == "" && !semHorario && e.CalculateTurnosTrabalhados(d) == 0 {
+				d.Revisar = true
+				d.RevisarMotivo = MsgRevisarColunasNaoFecham
+			}
 		}
 
 		// 1. Saldo Real, pela matemática dos batimentos.

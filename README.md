@@ -214,6 +214,14 @@ ponto-real-go/
 
 ## 📝 Changelog
 
+### v1.1.3 — As quatro divergências decididas, e o batimento na coluna errada (Agosto 2026)
+- ⚖️ **As quatro constantes divergentes do gerador foram unificadas**, depois de medidas: o piso da tarde em 3h (era 3h em quatro casos, 2h num e nenhum em dois), a manhã sorteada solta em 200–240 min (era 220–260 num dos três lugares que fazem a mesma pergunta), o desvio dos minutos sempre antes de conferir o piso, e a entrada do dia com as duas saídas calculada pela carga. **Nenhum dia real mudou** — as quatro só afetam combinações de batimentos que os meses do usuário nunca produziram.
+- 🐛 **O dia com as duas saídas parou de inventar saldo.** A tarde era conhecida e mesmo assim a entrada era sorteada solta: o dia fechava na jornada em 8% das vezes, e o caso do snapshot somava 9h40 contra uma jornada de 8h — **+1h40 de crédito que ninguém trabalhou**. Calculando a entrada pela carga, fecha em +2 min.
+- 🐛 **A saída da tarde não pode mais sair antes do retorno do almoço.** Dois casos geravam a tarde sem piso nenhum, e o que os salvava era o teto de uma janela de plausibilidade em outra função — 70 minutos de folga, sem aviso nenhum onde importava. A garantia passou a ser aritmética e local.
+- 🐛 **A fuga do minuto redondo não come mais o piso da tarde**, que saía com 179 minutos contra um piso de 180. É o mesmo defeito que o almoço gerado já teve, no outro gerador.
+- ✨ **Batimento na coluna errada em dia de dispensa agora é apontado e corrigível num clique.** Quando a jornada do ato está informada e nenhum turno fecha, a linha ganha um ⚠️ e um botão que lê os dois batimentos como entrada e saída do expediente. Nenhum horário é alterado — só a coluna em que cada um é lido —, e nada se aplica sozinho. No 03/07/2026 o dia sai de **−04:00 para +00:19** e a frase automática volta a ser gerada.
+- 🔁 **A sugestão sobrevive ao reprocessamento** porque não é guardada: ela é derivada do estado atual. A extração volta a errar a coluna, o aviso volta a aparecer, o conserto continua a um clique.
+
 ### v1.1.2 — Um gerador só por horário inventado (Agosto 2026)
 - ♻️ **`adjustDay` reescrito**: 232 linhas viraram 99. Onde havia 12 combinações de batimentos, cada uma com a sua própria cópia da aritmética, agora há **14 casos nomeados** de duas a quatro linhas — e **cada coluna inventada nasce num gerador só**. O que muda de um caso para outro é de qual horário conhecido o gerador se ancora e em que ordem os quatro se resolvem.
 - 🐛 **Sumiu o aviso *"combinação não prevista"*.** Ele não denunciava defeito nenhum: eram duas combinações legítimas — o dia em que o servidor bateu na saída para o almoço, ou nela e no retorno, e esqueceu as duas pontas. Hoje cada uma tem nome e comentário próprios.

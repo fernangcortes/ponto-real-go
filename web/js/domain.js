@@ -127,6 +127,49 @@ export const camposFaltantes = (d, isDispensa) => {
 export const MSG_CARGA_REDUZIDA = 'Expediente reduzido: confira a carga horária do dia definida pelo decreto.';
 export const MSG_CARGA_DISPENSA = 'Dispensa: informe a jornada exigida neste dia, conforme o ato que a concedeu.';
 
+// Espelho de rules.MsgRevisarColunasNaoFecham. Os dois lados conferem contra
+// testdata/regras.json: se um apontar e o outro não, o ⚠️ aparece na tela e
+// some ao recarregar, ou o contrário.
+export const MSG_COLUNAS_NAO_FECHAM = 'Nenhum turno fecha: os batimentos deste dia estão em colunas que não formam par de entrada e saída.';
+
+// colunasNaoFecham diz se o dia tem batimento mas nenhum turno completo.
+//
+// Só faz sentido perguntar isso onde a jornada vem de um ato e já foi informada.
+// Num dia comum, turno incompleto é rotina — é justamente o que o gerador de
+// horários existe para completar. Num dia de dispensa nada é gerado, então um
+// turno que não fecha vira jornada inteira debitada: o 03/07/2026 acusou −04:00
+// em vez de +00:19 porque 13:45 foi lido como retorno do almoço.
+//
+// Sem a jornada informada o dia já tem o seu próprio aviso, e dois na mesma
+// linha seriam ruído.
+export const colunasNaoFecham = (d, tipo) =>
+    CARGA_POR_ATO.includes(tipo) &&
+    d.carga > 0 &&
+    CAMPOS_HORARIO.some((f) => isTimeValid(d[f])) &&
+    minutosTrabalhados(d) === 0;
+
+// propostaDeColunas devolve os dois batimentos na ordem em que passariam a ser
+// lidos — entrada e saída do expediente — ou null quando não há o que propor.
+//
+// A proposta só existe com DOIS batimentos. Com um só não há par a formar, e o
+// aviso sai sem botão: apontar o problema continua valendo, adivinhar o horário
+// que falta não. Com três ou mais algum turno sempre fecha, então nem o aviso
+// chega aqui.
+//
+// Ela não inventa nem altera horário nenhum: só diz em que coluna cada um seria
+// lido. Aplicá-la é o que o usuário já faz arrastando, e continua sendo escolha
+// dele — o batimento é do servidor.
+export const propostaDeColunas = (d, tipo) => {
+    if (!colunasNaoFecham(d, tipo)) return null;
+
+    const pontos = CAMPOS_HORARIO
+        .map((campo, slot) => ({ campo, slot, valor: d[campo], real: (d.o || [])[slot] === 1 }))
+        .filter((p) => isTimeValid(p.valor))
+        .sort((a, b) => t2m(a.valor) - t2m(b.valor));
+
+    return pontos.length === 2 ? { entrada: pontos[0], saida: pontos[1] } : null;
+};
+
 // avisoDeRevisao devolve o texto do ⚠️ da linha, ou '' se não há aviso.
 //
 // Combina duas origens: o que o backend apurou na leitura (observação
@@ -137,10 +180,19 @@ export const avisoDeRevisao = (d, tipo) => {
         return tipo === 'dispensa' ? MSG_CARGA_DISPENSA : MSG_CARGA_REDUZIDA;
     }
 
-    // Aviso de carga vindo do backend perde a validade assim que a jornada é
-    // informada; os demais continuam valendo.
+    // Com a jornada informada, dá para notar o que antes não dava: nenhum turno
+    // fecha, e o dia vai debitar a jornada inteira por erro de coluna.
+    if (colunasNaoFecham(d, tipo)) return MSG_COLUNAS_NAO_FECHAM;
+
+    // Avisos do backend que a edição em curso já resolveu. O de carga perde a
+    // validade assim que a jornada é informada; o de colunas, assim que elas
+    // fecham — se ainda não fechassem, a linha acima teria devolvido o aviso.
+    //
+    // Sem isso o ⚠️ sobrevive à própria correção e só some ao recarregar a
+    // página, dizendo que há problema onde não há mais.
     const doBackend = d.revisar_motivo || '';
-    if (doBackend === MSG_CARGA_REDUZIDA || doBackend === MSG_CARGA_DISPENSA) return '';
+    if (doBackend === MSG_CARGA_REDUZIDA || doBackend === MSG_CARGA_DISPENSA ||
+        doBackend === MSG_COLUNAS_NAO_FECHAM) return '';
 
     return d.revisar ? (doBackend || 'Requer conferência manual') : '';
 };

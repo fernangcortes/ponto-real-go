@@ -14,6 +14,7 @@ import {
     isAutoOccurrence, isOccurrenceDay, camposFaltantes,
     minutosTrabalhados, saldoDoDia, calcularTotais, deWire, paraWire,
     avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA,
+    MSG_COLUNAS_NAO_FECHAM, colunasNaoFecham, propostaDeColunas,
 } from './domain.js';
 import {
     montarJustificativa, semPrefixoDeData, comPrefixoDeData, textoDaJustificativa,
@@ -598,4 +599,106 @@ test('limpos sobrevive ao round-trip com o backend', () => {
 test('sem campos apagados, limpos não vai para o backend', () => {
     assert.equal(paraWire(dia()).limpos, undefined);
     assert.deepEqual(deWire({ d: 1 }).limpos, []);
+});
+
+// --- Colunas que não fecham turno nenhum (o 03/07/2026 real) ---
+//
+// Naquele dia o usuário bateu 09:26 e 13:45 numa dispensa de 4h. A extração leu
+// o 13:45 como retorno do almoço: nenhum turno fechou, o dia acusou −04:00 em
+// vez de +00:19 e a frase automática não saiu. Arrastar o 13:45 resolvia, e a
+// correção morria no reprocessamento seguinte.
+
+const diaDaDispensa = (over = {}) => dia({
+    d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
+    e1: '09:26', e2: '13:45', o: [1, 0, 1, 0], ...over,
+});
+
+test('o dia real 03/07: nenhum turno fecha e a jornada inteira vira débito', () => {
+    const d = diaDaDispensa();
+    assert.equal(minutosTrabalhados(d), 0);
+    assert.equal(saldoDoDia(d, 'dispensa').contribui, -240);
+    assert.equal(colunasNaoFecham(d, 'dispensa'), true);
+    assert.equal(avisoDeRevisao(d, 'dispensa'), MSG_COLUNAS_NAO_FECHAM);
+});
+
+test('aplicada a proposta, o mesmo dia fecha em +00:19', () => {
+    const { entrada, saida } = propostaDeColunas(diaDaDispensa(), 'dispensa');
+    const corrigido = dia({
+        d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
+        e1: entrada.valor, s1: saida.valor, o: [1, 1, 0, 0],
+    });
+
+    assert.equal(minutosTrabalhados(corrigido), 259);
+    assert.equal(saldoDoDia(corrigido, 'dispensa').contribui, 19);
+    assert.equal(colunasNaoFecham(corrigido, 'dispensa'), false);
+    assert.equal(avisoDeRevisao(corrigido, 'dispensa'), '');
+});
+
+test('a proposta ordena pelo relógio, não pela coluna em que o horário veio', () => {
+    // O mais tarde na coluna da entrada e o mais cedo na do retorno: mesmo assim
+    // a entrada proposta é a mais cedo.
+    const p = propostaDeColunas(diaDaDispensa({ e1: '13:45', e2: '09:26' }), 'dispensa');
+    assert.equal(p.entrada.valor, '09:26');
+    assert.equal(p.saida.valor, '13:45');
+});
+
+test('a proposta carrega a marca de batimento real de cada horário', () => {
+    const p = propostaDeColunas(diaDaDispensa({ o: [1, 0, 0, 0] }), 'dispensa');
+    assert.equal(p.entrada.real, true);   // o 09:26 veio da folha
+    assert.equal(p.saida.real, false);    // o 13:45 não
+});
+
+test('sem a jornada informada, o aviso é o da jornada e não o das colunas', () => {
+    const d = diaDaDispensa({ carga: undefined });
+    assert.equal(colunasNaoFecham(d, 'dispensa'), false);
+    assert.equal(avisoDeRevisao(d, 'dispensa'), MSG_CARGA_DISPENSA);
+    assert.equal(propostaDeColunas(d, 'dispensa'), null);
+});
+
+test('com um batimento só, avisa mas não propõe: não há par a formar', () => {
+    const d = diaDaDispensa({ e2: '' });
+    assert.equal(colunasNaoFecham(d, 'dispensa'), true);
+    assert.equal(avisoDeRevisao(d, 'dispensa'), MSG_COLUNAS_NAO_FECHAM);
+    assert.equal(propostaDeColunas(d, 'dispensa'), null);
+});
+
+test('dia comum com turno incompleto não avisa: é o normal, e o gerador completa', () => {
+    const d = dia({ e1: '09:26', e2: '13:45' });
+    assert.equal(colunasNaoFecham(d, 'parcial'), false);
+    assert.equal(propostaDeColunas(d, 'parcial'), null);
+});
+
+test('expediente reduzido com jornada informada também é coberto', () => {
+    const d = dia({ d: 24, mot: 'EXPEDIENTE REDUZIDO', carga: 300, e1: '08:39', e2: '13:31' });
+    assert.equal(colunasNaoFecham(d, 'reduzido'), true);
+    assert.equal(avisoDeRevisao(d, 'reduzido'), MSG_COLUNAS_NAO_FECHAM);
+});
+
+test('dia de dispensa cujo turno fecha continua sem aviso', () => {
+    const d = diaDaDispensa({ e1: '09:26', s1: '13:45', e2: '' });
+    assert.equal(colunasNaoFecham(d, 'dispensa'), false);
+    assert.equal(avisoDeRevisao(d, 'dispensa'), '');
+});
+
+test('o aviso do backend não sobrevive à própria correção', () => {
+    // Regressão vista no navegador: depois de aplicar a proposta, o ⚠️ ficava
+    // na linha porque revisar_motivo só é recalculado pelo servidor. A tela
+    // dizia que havia problema num dia que já estava certo.
+    const corrigido = dia({
+        d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
+        e1: '09:26', s1: '13:45', o: [1, 1, 0, 0],
+        revisar: true, revisar_motivo: MSG_COLUNAS_NAO_FECHAM,
+    });
+
+    assert.equal(colunasNaoFecham(corrigido, 'dispensa'), false);
+    assert.equal(avisoDeRevisao(corrigido, 'dispensa'), '');
+});
+
+test('aviso do backend que continua valendo não é engolido', () => {
+    const d = dia({
+        d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
+        e1: '09:26', s1: '13:45', o: [1, 1, 0, 0],
+        revisar: true, revisar_motivo: 'Nenhum horário foi lido para este dia.',
+    });
+    assert.equal(avisoDeRevisao(d, 'dispensa'), 'Nenhum horário foi lido para este dia.');
 });

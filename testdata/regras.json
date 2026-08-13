@@ -12,7 +12,7 @@
     "Ao mudar uma regra, o valor esperado muda AQUI, uma vez, e os dois testes",
     "passam a exigir a mudança dos dois lados.",
     "",
-    "aviso_carga: \"dispensa\" ou \"reduzido\" quando o dia pede que a jornada do ato seja informada; \"\" quando não há pendência."
+    "aviso_carga: \"dispensa\" ou \"reduzido\" quando o dia pede que a jornada do ato seja informada; \"colunas\" quando a jornada ja veio mas nenhum turno fecha; \"\" quando nao ha pendencia."
   ],
   "mes_ano": "06/2026",
   "casos": [
@@ -186,6 +186,61 @@
       "tipo": "parcial",
       "contribui": -360,
       "aviso_carga": ""
+    },
+    {
+      "nome": "dispensa com jornada informada e batimentos que nao fecham turno",
+      "dia": {
+        "d": 3,
+        "w": "Sex",
+        "mot": "DISPENSA PARA CURSO",
+        "e1": "09:26",
+        "e2": "13:45",
+        "carga": 240
+      },
+      "tipo": "dispensa",
+      "contribui": -240,
+      "aviso_carga": "colunas"
+    },
+    {
+      "nome": "dispensa com os mesmos batimentos nas colunas certas nao avisa",
+      "dia": {
+        "d": 3,
+        "w": "Sex",
+        "mot": "DISPENSA PARA CURSO",
+        "e1": "09:26",
+        "s1": "13:45",
+        "carga": 240
+      },
+      "tipo": "dispensa",
+      "contribui": 19,
+      "aviso_carga": ""
+    },
+    {
+      "nome": "expediente reduzido com jornada informada e turno que nao fecha",
+      "dia": {
+        "d": 24,
+        "w": "Qua",
+        "mot": "EXPEDIENTE REDUZIDO",
+        "e1": "08:39",
+        "e2": "13:31",
+        "carga": 300
+      },
+      "tipo": "reduzido",
+      "contribui": -300,
+      "aviso_carga": "colunas"
+    },
+    {
+      "nome": "dispensa sem jornada informada nao avisa de coluna, avisa da jornada",
+      "dia": {
+        "d": 3,
+        "w": "Sex",
+        "mot": "DISPENSA PARA CURSO",
+        "e1": "09:26",
+        "e2": "13:45"
+      },
+      "tipo": "dispensa",
+      "contribui": 0,
+      "aviso_carga": "dispensa"
     }
   ]
 }
