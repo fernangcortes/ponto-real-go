@@ -1,0 +1,16 @@
+# Commits que só mexeram em formatação, e que o `git blame` deve atravessar.
+#
+# Neste projeto o blame é ferramenta de trabalho: quando um horário sai errado
+# num documento assinado, a pergunta é "de onde veio este número" — e um commit
+# de formatação em cima de 1000 linhas responde "do Prettier", que não ajuda
+# ninguém.
+#
+# Para usar:
+#
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Uma vez configurado, vale para todo `git blame` do repositório. O GitHub já
+# respeita este arquivo automaticamente.
+
+# style: adotar o Prettier no JS e no CSS de web/ (2026-08-13)
+fde9b3ed721619f3c897c3ccc6132e0251e796e9
