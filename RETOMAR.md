@@ -6,13 +6,26 @@ Ponto de partida para uma nova sessão. As regras de operação estão no
 
 ## Estado
 
-**A reescrita do `adjustDay` está na `master`** desde 2026-08-13, pelo PR #2
-(`cf51c8d`), com o CI verde nos três jobs — o `-race` incluído. Detalhe no item 1
-abaixo. A branch `reescrita-adjuster` cumpriu seu papel.
+**A refatoração está encerrada** (2026-08-13). Todo o plano de
+[REFATORACAO.md](REFATORACAO.md) foi executado, com uma única exceção
+deliberada: a troca da 4.8, sobre a qual a recomendação é *não fazer* — o
+raciocínio está no item 3 aqui embaixo e completo na 4.8 do plano.
 
-**A refatoração anterior foi mergeada na `master`** em 2026-08-10, pelo PR #1
-(`1d9f31b`). A branch `refatoracao` cumpriu seu papel e não é mais o lugar de
-trabalhar.
+Não há branch com trabalho pendente. Tudo está na `master`, e o CI passou nos
+três jobs em cada merge — inclusive o `-race`, que só ele dá.
+
+| PR | O que entrou |
+|---|---|
+| #1 (`1d9f31b`) | a refatoração grande, 13 commits |
+| #2 (`cf51c8d`) | reescrita do `adjustDay` e travamento dos horários gerados |
+| #3 (`f867d16`) | medição das quatro divergências e trava do acoplamento |
+| #4 (`698dcb0`) | as recomendações registradas |
+| #5 (`463aa5b`) | as quatro divergências unificadas e o batimento na coluna errada |
+| #6 (`95ccadf`) | `styles.css` de 9 `!important` para 1, e Prettier |
+
+**O que uma sessão nova deve saber:** o valor deste arquivo agora está menos no
+"o que falta" e mais nas **armadilhas**, mais abaixo, e nas decisões registradas
+— elas explicam por que os números são os que são.
 
 **O CI está verde nos três jobs** — e essa é a novidade que mais importa,
 porque significa que o `-race` finalmente rodou. Ele exige compilador C, não
@@ -63,6 +76,14 @@ O CI acrescenta a estes o `go test -race ./...`, que é o portão que só ele d�
    dispensa, saldo oficial, e agora as duas seções do documento SEI. Ele é quem
    sabe se os números batem com a realidade. Já está mergeado, então a
    conferência é para achar erro, não para decidir se entra.
+
+2. **Olhar os dias em que o piso da tarde segura.** Desde a unificação das
+   constantes (2026-08-13), a tarde gerada nunca sai com menos de 3 horas — e
+   quando esse piso segura, **o dia fecha acima da jornada, com crédito que o
+   sistema acrescentou**. Acontece em cerca de 13% dos dias em que só falta a
+   saída da tarde. Nos dois meses reais isso não ocorreu, mas é a única coisa que
+   o gerador faz hoje que pode inflar saldo, e vale saber onde procurar. Está
+   descrito no [MANUAL.md](MANUAL.md), na seção do horário inventado.
 
 ## O que falta, em ordem de valor
 
@@ -398,13 +419,23 @@ move colunas, nenhum horário é inventado — o que o mantém fora do territór
 fechado. Com três, algum turno fecha e o aviso não sai; com um só, não há o que
 propor. São os casos em que a proposta seria adivinhação.
 
-### 3. Nada mais é urgente
-- `web/styles.css`: ~2100 linhas, 9 `!important` (item 3.5). Baixo retorno.
-- Prettier no front-end. Baixo retorno.
-- A troca da 4.8 (front-end consumir `/api/process`): **recomendação é NÃO
-  fazer** — o teste compartilhado já entrega a garantia que ela entregaria, sem
-  latência de rede a cada tecla nem falha quando o servidor não responde. O
-  raciocínio completo está na 4.8 do plano.
+### 3. ~~`styles.css` e Prettier~~ — feitos em 2026-08-13
+
+`styles.css` foi de **9 `!important` para 1**, e o que sobrou explica no
+comentário contra o que briga — durante um arraste, a regra de hover tem
+especificidade maior e apagaria a borda de erro. Dos oito que saíram, dois eram
+**regra morta** (`day-indicator` e `td[onclick*="copyCell"]`, cujas classes não
+são mais emitidas).
+
+O Prettier cobre `web/**/*.{js,css}`, com `format:check` como portão no CI e a
+versão fixada. `index.html` e os `.md` ficaram de fora de propósito.
+
+### 4. A única coisa que sobrou, e a recomendação é não fazer
+
+A troca da 4.8 (front-end consumir `/api/process`): **recomendação é NÃO
+fazer** — o teste compartilhado já entrega a garantia que ela entregaria, sem
+latência de rede a cada tecla nem falha quando o servidor não responde. O
+raciocínio completo está na 4.8 do plano.
 
 ## Armadilhas que custaram tempo
 
@@ -440,11 +471,33 @@ ramo parece rodar milhares de vezes. E cobertura ali não é proteção: para sa
 se a suíte segura mesmo, **mude um número de propósito e veja se ela percebe**.
 Foi assim que se descobriu que não segurava.
 
-**`gofmt -l` no Windows lista todos os arquivos.** É o CRLF da cópia de
-trabalho, não erro de formatação. Para checar de verdade, converta para LF numa
-pasta temporária e rode `gofmt -l` lá — ou confie no CI, que roda em Linux.
-(Detalhe: só `index.html` e `styles.css` estavam em CRLF no repositório; os `.go`
-sempre estiveram em LF.)
+**Fim de linha: a armadilha mudou de tamanho, e conferir por amostra engana.**
+
+A regra geral — "`gofmt -l` no Windows lista todos os arquivos por causa do CRLF"
+— **não vale mais neste projeto**. O `.gitattributes` (`* text=auto eol=lf`,
+desde `e4e612e`) força LF **também na cópia de trabalho** e anula o
+`core.autocrlf`. Medido em 2026-08-13: `gofmt -l` listava **2 arquivos de 48**, e
+os blobs dos dois estavam limpos — eram os únicos com CRLF na árvore, resquício
+de alguma ferramenta que os escreveu depois do checkout. Removido o CR, o `gofmt`
+se cala e o `git diff` continua vazio, porque o blob já era LF.
+
+Pelo mesmo motivo, `prettier --check` aqui concorda com o do CI: os 9 arquivos
+que ele acusou tinham diferença real de formatação.
+
+**Como conferir de verdade**, porque o método importa:
+
+```bash
+git ls-files --eol web/            # i/ = indice, w/ = arvore
+for f in $(git ls-files '*.go'); do
+  a=$(wc -c < "$f"); b=$(tr -d '\r' < "$f" | wc -c)
+  [ $((a-b)) -gt 0 ] && echo "$f -> $((a-b)) CR"
+done
+```
+
+⚠️ **`grep -c $'\r'` deu resultado errado nesta máquina** — acusou CR em arquivos
+que têm zero. Foi por pouco que não se concluiu que o repositório inteiro estava
+em CRLF. Use a contagem de bytes ou o `git ls-files --eol`; e confira arquivo por
+arquivo, nunca por amostra.
 
 **`-race` não roda aqui.** Exige `CGO_ENABLED=1` e um compilador C que não está
 instalado. O portão real é o CI.
