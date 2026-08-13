@@ -1,0 +1,17 @@
+# O escopo do Prettier está no script `format` do package.json: web/**/*.{js,css}.
+# Este arquivo existe para o caso de alguém rodar `prettier .` na raiz sem o
+# script, e para registrar o que fica de fora de propósito:
+#
+# - web/index.html: reformatar marcação mexe no espaço entre elementos inline,
+#   que é significativo na renderização. Risco sem retorno.
+# - testdata/regras.json: o fixture é lido pelo motor Go e pelo front-end, e o
+#   diff dele precisa continuar legível linha a linha.
+# - os .md: reformatar 2.500 linhas de documentação enterraria o histórico das
+#   decisões, que é o valor delas.
+
+node_modules/
+data/
+*.md
+*.html
+*.json
+*.go

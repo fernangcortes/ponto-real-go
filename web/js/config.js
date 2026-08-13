@@ -18,9 +18,8 @@ export const CONFIG = {
 // não a do Go exige apontar para o servidor local explicitamente.
 export const resolverApiBase = (location) => {
     const soltoNoDisco = location.protocol === 'file:';
-    const outraPorta = location.hostname === 'localhost'
-        && location.port !== '8080'
-        && location.port !== '';
+    const outraPorta =
+        location.hostname === 'localhost' && location.port !== '8080' && location.port !== '';
     return soltoNoDisco || outraPorta ? 'http://localhost:8080' : '';
 };
 
@@ -50,8 +49,21 @@ export const NOMES_CAMPOS = ['a entrada', 'a saída do almoço', 'a entrada do a
 
 export const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-export const MESES_NOMES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+export const MESES_NOMES = [
+    '',
+    'Janeiro',
+    'Fevereiro',
+    'Março',
+    'Abril',
+    'Maio',
+    'Junho',
+    'Julho',
+    'Agosto',
+    'Setembro',
+    'Outubro',
+    'Novembro',
+    'Dezembro',
+];
 
 // Tipos que o usuário pode marcar como dia neutro: não geram saldo nem déficit.
 export const TIPOS_NEUTROS = ['feriado', 'folga', 'fds', 'convocacao'];
@@ -70,12 +82,36 @@ export const TIPO_POR_SELECAO = {
 
 // Rótulos do seletor de tipo de dia, com a explicação que vai no tooltip.
 export const TIPOS_DE_DIA = [
-    { valor: 'util', rotulo: 'Útil', ajuda: 'Dia normal de trabalho: o saldo sai da diferença entre o batido e a jornada.' },
+    {
+        valor: 'util',
+        rotulo: 'Útil',
+        ajuda: 'Dia normal de trabalho: o saldo sai da diferença entre o batido e a jornada.',
+    },
     { valor: 'fds', rotulo: 'FDS', ajuda: 'Sábado ou domingo. Não gera saldo nem déficit.' },
-    { valor: 'dispensa', rotulo: 'Dispensa', ajuda: 'Dispensa concedida por ato (curso, convocação). Informe ao lado a jornada que o ato ainda exige.' },
-    { valor: 'ferias', rotulo: 'Férias', ajuda: 'Férias homologadas. Ausência autorizada: não conta como falta nem gera déficit.' },
-    { valor: 'feriado', rotulo: 'Feriado', ajuda: 'Feriado, recesso ou ponto facultativo. Não gera saldo nem déficit.' },
+    {
+        valor: 'dispensa',
+        rotulo: 'Dispensa',
+        ajuda: 'Dispensa concedida por ato (curso, convocação). Informe ao lado a jornada que o ato ainda exige.',
+    },
+    {
+        valor: 'ferias',
+        rotulo: 'Férias',
+        ajuda: 'Férias homologadas. Ausência autorizada: não conta como falta nem gera déficit.',
+    },
+    {
+        valor: 'feriado',
+        rotulo: 'Feriado',
+        ajuda: 'Feriado, recesso ou ponto facultativo. Não gera saldo nem déficit.',
+    },
     { valor: 'folga', rotulo: 'Folga', ajuda: 'Folga concedida. Não gera saldo nem déficit.' },
-    { valor: 'convocacao', rotulo: 'Convocação', ajuda: 'Convocação institucional. Não gera saldo nem déficit.' },
-    { valor: 'reduzido', rotulo: 'Reduzido', ajuda: 'Expediente reduzido por decreto. Informe ao lado a jornada exigida no dia.' },
+    {
+        valor: 'convocacao',
+        rotulo: 'Convocação',
+        ajuda: 'Convocação institucional. Não gera saldo nem déficit.',
+    },
+    {
+        valor: 'reduzido',
+        rotulo: 'Reduzido',
+        ajuda: 'Expediente reduzido por decreto. Informe ao lado a jornada exigida no dia.',
+    },
 ];

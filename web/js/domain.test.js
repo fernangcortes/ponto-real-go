@@ -10,30 +10,64 @@ import assert from 'node:assert/strict';
 import { CONFIG, CARGA_DIARIA } from './config.js';
 import { t2m, m2t, m2tUnsigned, parseOrigSaldo, isTimeValid, esc, normalizeObs } from './util.js';
 import {
-    classifyDay, detectarTipoDia, tipoSelecionado, isWeekend,
-    isAutoOccurrence, isOccurrenceDay, camposFaltantes,
-    minutosTrabalhados, saldoDoDia, calcularTotais, deWire, paraWire,
-    avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA,
-    MSG_COLUNAS_NAO_FECHAM, colunasNaoFecham, propostaDeColunas,
+    classifyDay,
+    detectarTipoDia,
+    tipoSelecionado,
+    isWeekend,
+    isAutoOccurrence,
+    isOccurrenceDay,
+    camposFaltantes,
+    minutosTrabalhados,
+    saldoDoDia,
+    calcularTotais,
+    deWire,
+    paraWire,
+    avisoDeRevisao,
+    MSG_CARGA_DISPENSA,
+    MSG_CARGA_REDUZIDA,
+    MSG_COLUNAS_NAO_FECHAM,
+    colunasNaoFecham,
+    propostaDeColunas,
 } from './domain.js';
 import {
-    montarJustificativa, semPrefixoDeData, comPrefixoDeData, textoDaJustificativa,
-    aplicarLacunas, duracaoHumana, frasesParaOTipo, sugestaoParaOTipo,
-    justificativaDeAto, motivoDoSilencio,
+    montarJustificativa,
+    semPrefixoDeData,
+    comPrefixoDeData,
+    textoDaJustificativa,
+    aplicarLacunas,
+    duracaoHumana,
+    frasesParaOTipo,
+    sugestaoParaOTipo,
+    justificativaDeAto,
+    motivoDoSilencio,
 } from './justificativa.js';
 
 // Junho de 2026: dia 1 é segunda; 6 e 7 são sábado e domingo.
-const usarJunho2026 = () => { CONFIG.mesAno = '06/2026'; };
+const usarJunho2026 = () => {
+    CONFIG.mesAno = '06/2026';
+};
 
 const dia = (over = {}) => ({
-    d: 1, w: 'Seg', e1: '', s1: '', e2: '', s2: '',
-    es: '', saldo: '', ocor: '', mot: '',
-    o: undefined, carga: undefined, dayTypeOverride: null,
-    ocorrenciaManual: null, justManual: '',
+    d: 1,
+    w: 'Seg',
+    e1: '',
+    s1: '',
+    e2: '',
+    s2: '',
+    es: '',
+    saldo: '',
+    ocor: '',
+    mot: '',
+    o: undefined,
+    carga: undefined,
+    dayTypeOverride: null,
+    ocorrenciaManual: null,
+    justManual: '',
     ...over,
 });
 
-const diaCheio = (over = {}) => dia({ e1: '08:00', s1: '12:00', e2: '13:00', s2: '17:00', ...over });
+const diaCheio = (over = {}) =>
+    dia({ e1: '08:00', s1: '12:00', e2: '13:00', s2: '17:00', ...over });
 
 // --- util ---
 
@@ -214,10 +248,10 @@ test('falta desconta a jornada cheia', () => {
 test('calcularTotais soma o mês e conta cada tipo', () => {
     usarJunho2026();
     const dias = [
-        diaCheio({ d: 1, s2: '17:30' }),                 // +30
-        dia({ d: 6 }),                                    // sábado: folga
-        dia({ d: 8, saldo: '-08:00' }),                   // falta: -480
-        diaCheio({ d: 9 }),                               // 0
+        diaCheio({ d: 1, s2: '17:30' }), // +30
+        dia({ d: 6 }), // sábado: folga
+        dia({ d: 8, saldo: '-08:00' }), // falta: -480
+        diaCheio({ d: 9 }), // 0
     ];
 
     const t = calcularTotais(dias);
@@ -281,7 +315,11 @@ test('camposFaltantes nomeia só os horários gerados', () => {
 });
 
 test('montarJustificativa liga os campos com "e"', () => {
-    const frase = montarJustificativa('01/06/2026', ['a entrada', 'a saída'], 'O ponto não registrou');
+    const frase = montarJustificativa(
+        '01/06/2026',
+        ['a entrada', 'a saída'],
+        'O ponto não registrou',
+    );
     assert.equal(frase, '01/06/2026 - O ponto não registrou a entrada e a saída.');
 
     const tres = montarJustificativa('01/06/2026', ['a', 'b', 'c'], 'X');
@@ -311,19 +349,22 @@ test('o que o usuário escreveu vence a frase automática', () => {
     assert.equal(
         textoDaJustificativa(ajustado, '10/07/2026', ['a saída do almoço'], template),
         '10/07/2026 - O ponto não registrou a saída do almoço.',
-        'sem texto próprio, monta a automática');
+        'sem texto próprio, monta a automática',
+    );
 
     ajustado.justManual = 'Compareci a reunião externa.';
     assert.equal(
         textoDaJustificativa(ajustado, '10/07/2026', ['a saída do almoço'], template),
         '10/07/2026 - Compareci a reunião externa.',
-        'o texto do usuário vence mesmo havendo horário gerado');
+        'o texto do usuário vence mesmo havendo horário gerado',
+    );
 
     ajustado.justManual = '';
     assert.equal(
         textoDaJustificativa(ajustado, '10/07/2026', ['a saída do almoço'], template),
         '10/07/2026 - O ponto não registrou a saída do almoço.',
-        'apagar o texto devolve a frase automática');
+        'apagar o texto devolve a frase automática',
+    );
 });
 
 test('dia sem horário gerado e sem texto não produz linha', () => {
@@ -342,12 +383,14 @@ test('dispensa cumprida se explica sozinha', () => {
 
     assert.equal(
         justificativaDeAto(d),
-        'Dia de dispensa: cumpri 4h19 da jornada de 4h exigida pelo ato, com expediente das 09:26 às 13:45.');
+        'Dia de dispensa: cumpri 4h19 da jornada de 4h exigida pelo ato, com expediente das 09:26 às 13:45.',
+    );
 
     // E chega ao campo pela via normal, sem o usuário digitar nada.
     assert.equal(
         textoDaJustificativa(d, '03/07/2026', [], 'X'),
-        '03/07/2026 - Dia de dispensa: cumpri 4h19 da jornada de 4h exigida pelo ato, com expediente das 09:26 às 13:45.');
+        '03/07/2026 - Dia de dispensa: cumpri 4h19 da jornada de 4h exigida pelo ato, com expediente das 09:26 às 13:45.',
+    );
 });
 
 test('jornada cumprida na medida não diz que houve excedente', () => {
@@ -388,7 +431,13 @@ test('batimento na coluna errada não vira jornada cumprida', () => {
 
 test('expediente reduzido tem a sua própria redação', () => {
     usarJunho2026();
-    const d = dia({ mot: 'EXPEDIENTE REDUZIDO', e1: '09:00', s1: '13:00', carga: 240, o: [1, 1, 0, 0] });
+    const d = dia({
+        mot: 'EXPEDIENTE REDUZIDO',
+        e1: '09:00',
+        s1: '13:00',
+        carga: 240,
+        o: [1, 1, 0, 0],
+    });
 
     assert.match(justificativaDeAto(d), /^Dia de expediente reduzido:/);
 });
@@ -408,7 +457,8 @@ test('o texto do usuário vence a frase de ato', () => {
 
     assert.equal(
         textoDaJustificativa(d, '03/07/2026', [], 'X'),
-        '03/07/2026 - Compareci ao curso de doutorado no período da tarde.');
+        '03/07/2026 - Compareci ao curso de doutorado no período da tarde.',
+    );
 });
 
 // Campo em branco sem explicação é indistinguível de defeito — foi exatamente
@@ -419,7 +469,13 @@ test('o campo vazio diz por que o sistema não escreveu', () => {
     const semJornada = dia({ mot: 'DISPENSA', e1: '09:26', s1: '13:45', o: [1, 1, 0, 0] });
     assert.match(motivoDoSilencio(semJornada), /Informe a jornada da dispensa/);
 
-    const naoFecha = dia({ mot: 'DISPENSA', e1: '09:26', s1: '11:00', carga: 240, o: [1, 1, 0, 0] });
+    const naoFecha = dia({
+        mot: 'DISPENSA',
+        e1: '09:26',
+        s1: '11:00',
+        carga: 240,
+        o: [1, 1, 0, 0],
+    });
     assert.match(motivoDoSilencio(naoFecha), /não fecha neste dia/);
 
     // Cumprida: há frase, então não há silêncio a explicar.
@@ -451,21 +507,29 @@ test('as lacunas recebem os valores do dia', () => {
     const frase = 'Cumpri {trabalhado} da jornada de {jornada} exigida em {data}.';
     assert.equal(
         aplicarLacunas(frase, { jornada: 240, trabalhado: 259, data: '03/07/2026' }),
-        'Cumpri 4h19 da jornada de 4h exigida em 03/07/2026.');
+        'Cumpri 4h19 da jornada de 4h exigida em 03/07/2026.',
+    );
 });
 
 // A mesma frase guardada precisa servir num dia de 2h sem sair errada.
 test('a mesma frase serve para jornadas diferentes', () => {
     const frase = 'Cumpri a jornada de {jornada} exigida pelo ato.';
-    assert.equal(aplicarLacunas(frase, { jornada: 240 }), 'Cumpri a jornada de 4h exigida pelo ato.');
-    assert.equal(aplicarLacunas(frase, { jornada: 120 }), 'Cumpri a jornada de 2h exigida pelo ato.');
+    assert.equal(
+        aplicarLacunas(frase, { jornada: 240 }),
+        'Cumpri a jornada de 4h exigida pelo ato.',
+    );
+    assert.equal(
+        aplicarLacunas(frase, { jornada: 120 }),
+        'Cumpri a jornada de 2h exigida pelo ato.',
+    );
 });
 
 // Marcador cru num documento assinado é pior que uma frase incompleta.
 test('lacuna sem valor some junto com o espaço que a precede', () => {
     assert.equal(
         aplicarLacunas('Cumpri a jornada de {jornada} exigida.', {}),
-        'Cumpri a jornada de exigida.');
+        'Cumpri a jornada de exigida.',
+    );
     assert.ok(!aplicarLacunas('x {jornada} y', {}).includes('{'), 'nenhum marcador sobra');
 });
 
@@ -475,7 +539,8 @@ test('a frase guardada é aplicada com as lacunas do dia', () => {
 
     assert.equal(
         textoDaJustificativa(d, '03/07/2026', [], 'X'),
-        '03/07/2026 - Cumpri 4h19 da jornada de 4h do ato.');
+        '03/07/2026 - Cumpri 4h19 da jornada de 4h do ato.',
+    );
 });
 
 test('as frases do tipo do dia sobem, e entre elas a mais usada', () => {
@@ -487,14 +552,18 @@ test('as frases do tipo do dia sobem, e entre elas a mais usada', () => {
 
     assert.deepEqual(
         frasesParaOTipo(frases, 'dispensa').map((f) => f.texto),
-        ['dispensa muito usada', 'dispensa pouco usada', 'útil pouco usada']);
+        ['dispensa muito usada', 'dispensa pouco usada', 'útil pouco usada'],
+    );
 
     // Nenhuma frase é filtrada: só a ordem muda.
     assert.equal(frasesParaOTipo(frases, 'util').length, 3);
 });
 
 test('frasesParaOTipo não altera a lista original', () => {
-    const frases = [{ texto: 'a', tipo: 'util' }, { texto: 'b', tipo: 'dispensa' }];
+    const frases = [
+        { texto: 'a', tipo: 'util' },
+        { texto: 'b', tipo: 'dispensa' },
+    ];
     frasesParaOTipo(frases, 'dispensa');
     assert.equal(frases[0].texto, 'a', 'a biblioteca em memória foi reordenada por acidente');
 });
@@ -517,11 +586,23 @@ test('a sugestão é a mais usada do mesmo tipo, e só dele', () => {
 
 test('deWire/paraWire fazem round-trip sem perder campo', () => {
     const doBackend = {
-        d: 3, w: 'Qua', e1: '08:02', s1: '12:03', e2: '13:05', s2: '17:31',
-        es: '08:27', saldo: '+00:27', saldo_real: '+00:27',
-        ocor: '', mot: 'DISPENSA', o: [1, 1, 0, 1], tipo: 'dispensa',
-        carga: 240, day_type_override: 'dispensa',
-        ocorrencia_manual: false, justificativa_manual: 'texto',
+        d: 3,
+        w: 'Qua',
+        e1: '08:02',
+        s1: '12:03',
+        e2: '13:05',
+        s2: '17:31',
+        es: '08:27',
+        saldo: '+00:27',
+        saldo_real: '+00:27',
+        ocor: '',
+        mot: 'DISPENSA',
+        o: [1, 1, 0, 1],
+        tipo: 'dispensa',
+        carga: 240,
+        day_type_override: 'dispensa',
+        ocorrencia_manual: false,
+        justificativa_manual: 'texto',
     };
 
     const volta = paraWire(deWire(doBackend));
@@ -557,8 +638,11 @@ test('informar a jornada tira o aviso na hora', () => {
     // Regressão: o aviso vinha só do backend, então limpar ou preencher a
     // jornada na tela não o atualizava até recarregar a página.
     const d = dia({
-        mot: 'DISPENSA PARA CURSO', e1: '08:00', s1: '12:00',
-        revisar: true, revisar_motivo: MSG_CARGA_DISPENSA,
+        mot: 'DISPENSA PARA CURSO',
+        e1: '08:00',
+        s1: '12:00',
+        revisar: true,
+        revisar_motivo: MSG_CARGA_DISPENSA,
     });
 
     d.carga = 240;
@@ -577,7 +661,14 @@ test('expediente reduzido tem a sua própria mensagem', () => {
 test('aviso vindo do backend sobre outro assunto é preservado', () => {
     usarJunho2026();
     const outro = 'Observação diz "SÁBADO", mas o dia 8 é Seg.';
-    const d = dia({ revisar: true, revisar_motivo: outro, e1: '08:00', s1: '12:00', e2: '13:00', s2: '17:00' });
+    const d = dia({
+        revisar: true,
+        revisar_motivo: outro,
+        e1: '08:00',
+        s1: '12:00',
+        e2: '13:00',
+        s2: '17:00',
+    });
     assert.equal(avisoDeRevisao(d, classifyDay(d)), outro);
 });
 
@@ -608,10 +699,16 @@ test('sem campos apagados, limpos não vai para o backend', () => {
 // vez de +00:19 e a frase automática não saiu. Arrastar o 13:45 resolvia, e a
 // correção morria no reprocessamento seguinte.
 
-const diaDaDispensa = (over = {}) => dia({
-    d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
-    e1: '09:26', e2: '13:45', o: [1, 0, 1, 0], ...over,
-});
+const diaDaDispensa = (over = {}) =>
+    dia({
+        d: 3,
+        mot: 'DISPENSA PARA CURSO',
+        carga: 240,
+        e1: '09:26',
+        e2: '13:45',
+        o: [1, 0, 1, 0],
+        ...over,
+    });
 
 test('o dia real 03/07: nenhum turno fecha e a jornada inteira vira débito', () => {
     const d = diaDaDispensa();
@@ -624,8 +721,12 @@ test('o dia real 03/07: nenhum turno fecha e a jornada inteira vira débito', ()
 test('aplicada a proposta, o mesmo dia fecha em +00:19', () => {
     const { entrada, saida } = propostaDeColunas(diaDaDispensa(), 'dispensa');
     const corrigido = dia({
-        d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
-        e1: entrada.valor, s1: saida.valor, o: [1, 1, 0, 0],
+        d: 3,
+        mot: 'DISPENSA PARA CURSO',
+        carga: 240,
+        e1: entrada.valor,
+        s1: saida.valor,
+        o: [1, 1, 0, 0],
     });
 
     assert.equal(minutosTrabalhados(corrigido), 259);
@@ -644,8 +745,8 @@ test('a proposta ordena pelo relógio, não pela coluna em que o horário veio',
 
 test('a proposta carrega a marca de batimento real de cada horário', () => {
     const p = propostaDeColunas(diaDaDispensa({ o: [1, 0, 0, 0] }), 'dispensa');
-    assert.equal(p.entrada.real, true);   // o 09:26 veio da folha
-    assert.equal(p.saida.real, false);    // o 13:45 não
+    assert.equal(p.entrada.real, true); // o 09:26 veio da folha
+    assert.equal(p.saida.real, false); // o 13:45 não
 });
 
 test('sem a jornada informada, o aviso é o da jornada e não o das colunas', () => {
@@ -685,9 +786,14 @@ test('o aviso do backend não sobrevive à própria correção', () => {
     // na linha porque revisar_motivo só é recalculado pelo servidor. A tela
     // dizia que havia problema num dia que já estava certo.
     const corrigido = dia({
-        d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
-        e1: '09:26', s1: '13:45', o: [1, 1, 0, 0],
-        revisar: true, revisar_motivo: MSG_COLUNAS_NAO_FECHAM,
+        d: 3,
+        mot: 'DISPENSA PARA CURSO',
+        carga: 240,
+        e1: '09:26',
+        s1: '13:45',
+        o: [1, 1, 0, 0],
+        revisar: true,
+        revisar_motivo: MSG_COLUNAS_NAO_FECHAM,
     });
 
     assert.equal(colunasNaoFecham(corrigido, 'dispensa'), false);
@@ -696,9 +802,14 @@ test('o aviso do backend não sobrevive à própria correção', () => {
 
 test('aviso do backend que continua valendo não é engolido', () => {
     const d = dia({
-        d: 3, mot: 'DISPENSA PARA CURSO', carga: 240,
-        e1: '09:26', s1: '13:45', o: [1, 1, 0, 0],
-        revisar: true, revisar_motivo: 'Nenhum horário foi lido para este dia.',
+        d: 3,
+        mot: 'DISPENSA PARA CURSO',
+        carga: 240,
+        e1: '09:26',
+        s1: '13:45',
+        o: [1, 1, 0, 0],
+        revisar: true,
+        revisar_motivo: 'Nenhum horário foi lido para este dia.',
     });
     assert.equal(avisoDeRevisao(d, 'dispensa'), 'Nenhum horário foi lido para este dia.');
 });

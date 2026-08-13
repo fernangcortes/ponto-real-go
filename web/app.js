@@ -6,17 +6,53 @@
 // visualizador de documento e persistência. A regra de negócio e as conversões
 // puras vivem em js/domain.js e js/util.js, onde são testáveis sem navegador.
 
-import { CONFIG, resolverApiBase, CAMPOS_HORARIO, MESES_NOMES, TIPO_POR_SELECAO,
-         TIPOS_DE_DIA, CARGA_POR_ATO, PRESETS_CARGA } from './js/config.js';
-import { t2m, m2t, m2tUnsigned, isTimeValid, esc, copiavel, clamp, randBetween, avoidRoundMins } from './js/util.js';
 import {
-    classifyDay, tipoSelecionado, isAutoOccurrence, isOccurrenceDay,
-    camposFaltantes, calcularTotais, avisoDeRevisao, propostaDeColunas,
-    isWeekend, deWire, paraWire, minutosTrabalhados,
+    CONFIG,
+    resolverApiBase,
+    CAMPOS_HORARIO,
+    MESES_NOMES,
+    TIPO_POR_SELECAO,
+    TIPOS_DE_DIA,
+    CARGA_POR_ATO,
+    PRESETS_CARGA,
+} from './js/config.js';
+import {
+    t2m,
+    m2t,
+    m2tUnsigned,
+    isTimeValid,
+    esc,
+    copiavel,
+    clamp,
+    randBetween,
+    avoidRoundMins,
+} from './js/util.js';
+import {
+    classifyDay,
+    tipoSelecionado,
+    isAutoOccurrence,
+    isOccurrenceDay,
+    camposFaltantes,
+    calcularTotais,
+    avisoDeRevisao,
+    propostaDeColunas,
+    isWeekend,
+    deWire,
+    paraWire,
+    minutosTrabalhados,
 } from './js/domain.js';
-import { getJustTemplate, salvarJustTemplate, JUST_TEMPLATE_PADRAO,
-         textoDaJustificativa, semPrefixoDeData, aplicarLacunas,
-         frasesParaOTipo, sugestaoParaOTipo, motivoDoSilencio, LACUNAS } from './js/justificativa.js';
+import {
+    getJustTemplate,
+    salvarJustTemplate,
+    JUST_TEMPLATE_PADRAO,
+    textoDaJustificativa,
+    semPrefixoDeData,
+    aplicarLacunas,
+    frasesParaOTipo,
+    sugestaoParaOTipo,
+    motivoDoSilencio,
+    LACUNAS,
+} from './js/justificativa.js';
 import { carregarBiblioteca, frasesAtuais, guardarFrase, esquecerFrase } from './js/biblioteca.js';
 
 CONFIG.apiBase = resolverApiBase(window.location);
@@ -31,7 +67,7 @@ const toggleOcorrenciaManual = (idx, checked) => {
     const d = daysData[idx];
     // Se o novo valor coincide com o que a detecção automática já daria,
     // não precisa de override — volta para "automático".
-    d.ocorrenciaManual = (checked === isAutoOccurrence(d)) ? null : checked;
+    d.ocorrenciaManual = checked === isAutoOccurrence(d) ? null : checked;
     if (!isOccurrenceDay(d)) d.justManual = '';
     updateAll();
     scheduleSave();
@@ -58,7 +94,7 @@ const syncJustManual = (idx, value) => {
     const automatica = textoDaJustificativa({ ...d, justManual: '' }, dataDoDia(d), faltantes);
 
     const escrito = semPrefixoDeData(value);
-    d.justManual = (escrito && `${dataDoDia(d)} - ${escrito}` !== automatica) ? escrito : '';
+    d.justManual = escrito && `${dataDoDia(d)} - ${escrito}` !== automatica ? escrito : '';
     scheduleSave();
 };
 
@@ -79,8 +115,11 @@ const guardarFraseDoDia = async (idx) => {
 
     const gravou = await guardarFrase(CONFIG.apiBase, texto, classifyDay(d));
     showToast(
-        gravou ? 'Frase guardada na biblioteca.' : 'Frase guardada aqui; será enviada ao servidor depois.',
-        gravou ? 'success' : 'info');
+        gravou
+            ? 'Frase guardada na biblioteca.'
+            : 'Frase guardada aqui; será enviada ao servidor depois.',
+        gravou ? 'success' : 'info',
+    );
     renderBibliotecaFrases();
     updateAll();
 };
@@ -159,10 +198,10 @@ const autoFillDay = (idx, changedField) => {
     // Quando o usuário preenche um campo fora de ordem, os valores são
     // automaticamente reorganizados em ordem cronológica.
     // Ex: e1=10:05, s1=12:50, e2=19:48, s2=11:50 → e1=10:05, s1=11:50, e2=12:50, s2=19:48
-    const filledVals = fields.map(f => isTimeValid(d[f]) ? t2m(d[f]) : null);
+    const filledVals = fields.map((f) => (isTimeValid(d[f]) ? t2m(d[f]) : null));
     const filledEntries = filledVals
         .map((v, i) => ({ idx: i, val: v }))
-        .filter(e => e.val !== null);
+        .filter((e) => e.val !== null);
 
     if (filledEntries.length >= 2) {
         const sorted = [...filledEntries].sort((a, b) => a.val - b.val);
@@ -218,13 +257,14 @@ const autoFillDay = (idx, changedField) => {
     const limpos = d.limpos || [];
     const podePreencher = (i) => d.o[i] === 0 && !limpos.includes(i);
 
-    const vals = fields.map(f => isTimeValid(d[f]) ? t2m(d[f]) : null);
+    const vals = fields.map((f) => (isTimeValid(d[f]) ? t2m(d[f]) : null));
     const empty = fields.filter((f, i) => vals[i] === null && podePreencher(i));
 
     if (empty.length === 0) return; // nada pra preencher
 
     const CARGA = 480; // 8h em min
-    const ALMOCO_MIN = 60, ALMOCO_MAX = 75;
+    const ALMOCO_MIN = 60,
+        ALMOCO_MAX = 75;
 
     // Tentar preencher campos vazios com base nos preenchidos
     let changed = false;
@@ -285,7 +325,7 @@ const autoFillDay = (idx, changedField) => {
 
     if (changed) {
         // Atualizar inputs no DOM
-        fields.forEach(f => {
+        fields.forEach((f) => {
             const inp = document.getElementById(`m_${f}_${d.d}`);
             if (inp) inp.value = d[f];
         });
@@ -299,16 +339,20 @@ const validateDayVisual = (idx) => {
     if (!row) return;
 
     row.classList.remove('validation-error');
-    row.querySelectorAll('.validation-badge').forEach(b => b.remove());
+    row.querySelectorAll('.validation-badge').forEach((b) => b.remove());
 
-    if (!isTimeValid(d.e1) || !isTimeValid(d.s1) || !isTimeValid(d.e2) || !isTimeValid(d.s2)) return;
+    if (!isTimeValid(d.e1) || !isTimeValid(d.s1) || !isTimeValid(d.e2) || !isTimeValid(d.s2))
+        return;
 
-    const m1 = t2m(d.e1), m2 = t2m(d.s1), m3 = t2m(d.e2), m4 = t2m(d.s2);
+    const m1 = t2m(d.e1),
+        m2 = t2m(d.s1),
+        m3 = t2m(d.e2),
+        m4 = t2m(d.s2);
     const errors = [];
     if (m1 >= m2) errors.push('Entrada ≥ Saída almoço');
     if (m2 >= m3) errors.push('Saída almoço ≥ Retorno');
     if (m3 >= m4) errors.push('Retorno ≥ Saída');
-    if ((m2 - m1) + (m4 - m3) < 480) errors.push('Carga < 8h');
+    if (m2 - m1 + (m4 - m3) < 480) errors.push('Carga < 8h');
     if (m3 - m2 < 60) errors.push('Almoço < 1h');
 
     if (errors.length > 0) {
@@ -340,18 +384,24 @@ const showToast = (message, type = 'info') => {
 
 // --- Copiar ---
 const copyToClipboard = (text, sourceEl) => {
-    navigator.clipboard.writeText(text).then(() => {
-        if (sourceEl) {
-            // Feedback visual inline
-            const orig = sourceEl.title;
-            sourceEl.classList.add('just-copied');
-            sourceEl.title = '✓ Copiado!';
-            setTimeout(() => { sourceEl.classList.remove('just-copied'); sourceEl.title = orig || ''; }, 1200);
-        }
-        showToast('Copiado!', 'success');
-    }).catch(() => {
-        showToast('Erro ao copiar', 'error');
-    });
+    navigator.clipboard
+        .writeText(text)
+        .then(() => {
+            if (sourceEl) {
+                // Feedback visual inline
+                const orig = sourceEl.title;
+                sourceEl.classList.add('just-copied');
+                sourceEl.title = '✓ Copiado!';
+                setTimeout(() => {
+                    sourceEl.classList.remove('just-copied');
+                    sourceEl.title = orig || '';
+                }, 1200);
+            }
+            showToast('Copiado!', 'success');
+        })
+        .catch(() => {
+            showToast('Erro ao copiar', 'error');
+        });
 };
 
 // Em window porque só é chamada dos onclick embutidos no HTML gerado.
@@ -477,7 +527,7 @@ const copyRow = (idx) => {
 // Copiar tabela inteira (tab-separated)
 window.copyTable = () => {
     const header = 'Dia\tE1\tS1\tE2\tS2\tE/S\tSaldo Orig\tOcor\tMotivo\tDia Sem';
-    const rows = daysData.map(d => {
+    const rows = daysData.map((d) => {
         const dia = String(d.d).padStart(2, '0');
         return [dia, d.e1, d.s1, d.e2, d.s2, d.es, d.saldo, d.ocor, d.mot, d.w].join('\t');
     });
@@ -487,13 +537,19 @@ window.copyTable = () => {
 // Copiar seção Ocorrência
 window.copyOcorrencia = () => {
     const body = document.getElementById('ocorrenciaBody');
-    if (!body || !body.rows.length) { showToast('Nenhuma ocorrência', 'info'); return; }
+    if (!body || !body.rows.length) {
+        showToast('Nenhuma ocorrência', 'info');
+        return;
+    }
     const header = 'Data\tEntrada\tSaída(Intervalo)\tEntrada(Intervalo)\tSaída';
-    const rows = Array.from(body.rows).map(r => {
-        return Array.from(r.cells).filter(c => !c.classList.contains('col-acao-manual')).map(c => {
-            const input = c.querySelector('input');
-            return input ? input.value : c.innerText.trim();
-        }).join('\t');
+    const rows = Array.from(body.rows).map((r) => {
+        return Array.from(r.cells)
+            .filter((c) => !c.classList.contains('col-acao-manual'))
+            .map((c) => {
+                const input = c.querySelector('input');
+                return input ? input.value : c.innerText.trim();
+            })
+            .join('\t');
     });
     copyToClipboard(header + '\n' + rows.join('\n'));
 };
@@ -501,8 +557,11 @@ window.copyOcorrencia = () => {
 // Copiar seção Justificativa
 window.copyJustificativa = () => {
     const body = document.getElementById('justificativaBody');
-    if (!body || !body.rows.length) { showToast('Nenhuma justificativa', 'info'); return; }
-    const rows = Array.from(body.rows).map(r => {
+    if (!body || !body.rows.length) {
+        showToast('Nenhuma justificativa', 'info');
+        return;
+    }
+    const rows = Array.from(body.rows).map((r) => {
         const input = r.querySelector('input');
         return input ? input.value : r.innerText.trim();
     });
@@ -513,7 +572,7 @@ window.copyJustificativa = () => {
 window.copyAll = () => {
     let out = '=== TABELA DE FREQUÊNCIA ===\n';
     out += 'Dia\tE1\tS1\tE2\tS2\tE/S\tSaldo Original\tOcor\tMotivo\n';
-    daysData.forEach(d => {
+    daysData.forEach((d) => {
         const dia = String(d.d).padStart(2, '0');
         out += [dia, d.e1, d.s1, d.e2, d.s2, d.es, d.saldo, d.ocor, d.mot].join('\t') + '\n';
     });
@@ -522,18 +581,22 @@ window.copyAll = () => {
     const ocBody = document.getElementById('ocorrenciaBody');
     if (ocBody) {
         out += 'Data\tEntrada\tSaída(Int.)\tEntrada(Int.)\tSaída\n';
-        Array.from(ocBody.rows).forEach(r => {
-            out += Array.from(r.cells).filter(c => !c.classList.contains('col-acao-manual')).map(c => {
-                const input = c.querySelector('input');
-                return input ? input.value : c.innerText.trim();
-            }).join('\t') + '\n';
+        Array.from(ocBody.rows).forEach((r) => {
+            out +=
+                Array.from(r.cells)
+                    .filter((c) => !c.classList.contains('col-acao-manual'))
+                    .map((c) => {
+                        const input = c.querySelector('input');
+                        return input ? input.value : c.innerText.trim();
+                    })
+                    .join('\t') + '\n';
         });
     }
 
     out += '\n=== JUSTIFICATIVA DO SERVIDOR ===\n';
     const juBody = document.getElementById('justificativaBody');
     if (juBody) {
-        Array.from(juBody.rows).forEach(r => {
+        Array.from(juBody.rows).forEach((r) => {
             const input = r.querySelector('input');
             out += (input ? input.value : r.innerText.trim()) + '\n';
         });
@@ -550,7 +613,12 @@ const saveState = (idx) => {
 
 // --- Renderizar conteúdo da célula de Saldo (suporta original e real/calculado) ---
 const renderSaldoCellContent = (d, realDiff) => {
-    if (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao') {
+    if (
+        d.dayTypeOverride === 'feriado' ||
+        d.dayTypeOverride === 'folga' ||
+        d.dayTypeOverride === 'fds' ||
+        d.dayTypeOverride === 'convocacao'
+    ) {
         const labels = { feriado: 'Feriado', folga: 'Folga', fds: 'FDS', convocacao: 'Convocação' };
         const label = labels[d.dayTypeOverride] || d.dayTypeOverride;
         return `<span style="color:var(--text-muted);font-size:10px;">${esc(label)}</span>`;
@@ -586,7 +654,11 @@ const renderSaldoCellContent = (d, realDiff) => {
     }
 
     // Se ambos existem e são diferentes
-    if (realFormatted && origSaldo && realFormatted.replace('+', '') !== origSaldo.replace('+', '')) {
+    if (
+        realFormatted &&
+        origSaldo &&
+        realFormatted.replace('+', '') !== origSaldo.replace('+', '')
+    ) {
         const cor = realFormatted.includes('-') ? 'var(--danger)' : 'var(--success)';
         return empilhado(saldoOriginal(origSaldo), saldoCalculado(realFormatted, cor));
     }
@@ -660,7 +732,8 @@ const linhaJustificativa = ({ d, idx, tipo }) => {
     // mesmo tipo primeiro, e entre elas a mais usada. Um datalist por linha
     // (e não um global) é o que permite ordem diferente por dia.
     const opcoes = frasesParaOTipo(frasesAtuais(), tipo)
-        .map((f) => `<option value="${esc(f.texto)}">`).join('');
+        .map((f) => `<option value="${esc(f.texto)}">`)
+        .join('');
 
     // Campo vazio por falta de um dado — a jornada do ato — não recebe sugestão:
     // uma frase com {jornada} resolveria para "a jornada de exigida pelo ato".
@@ -669,12 +742,16 @@ const linhaJustificativa = ({ d, idx, tipo }) => {
 
     // A sugestão vive no placeholder, em cinza, e só entra no campo se o usuário
     // apertar Tab. Nada é escrito num documento assinado sem um gesto dele.
-    const sugestao = (frase || silencio) ? '' : sugestaoParaOTipo(frasesAtuais(), tipo);
+    const sugestao = frase || silencio ? '' : sugestaoParaOTipo(frasesAtuais(), tipo);
 
     let dica = 'Descreva o motivo da ocorrência...';
     if (silencio) dica = silencio;
     else if (sugestao) {
-        dica = aplicarLacunas(sugestao, { jornada: d.carga, trabalhado: minutosTrabalhados(d), data: dataDoDia(d) });
+        dica = aplicarLacunas(sugestao, {
+            jornada: d.carga,
+            trabalhado: minutosTrabalhados(d),
+            data: dataDoDia(d),
+        });
     }
 
     // O campo é editável e salvo em TODOS os dias, inclusive quando a frase veio
@@ -703,10 +780,12 @@ const renderOcorrencias = (porDia) => {
     ocorBody.innerHTML = '';
     justBody.innerHTML = '';
 
-    porDia.filter(({ d }) => isOccurrenceDay(d)).forEach((item) => {
-        ocorBody.appendChild(linhaOcorrencia(item));
-        justBody.appendChild(linhaJustificativa(item));
-    });
+    porDia
+        .filter(({ d }) => isOccurrenceDay(d))
+        .forEach((item) => {
+            ocorBody.appendChild(linhaOcorrencia(item));
+            justBody.appendChild(linhaJustificativa(item));
+        });
 };
 
 const renderStatusBar = (totais) => {
@@ -720,7 +799,8 @@ const renderStatusBar = (totais) => {
     const realEl = document.getElementById('saldoTotal');
     if (realEl) {
         realEl.innerText = m2t(totais.saldoReal);
-        realEl.className = 'status-value ' + (totais.saldoReal < 0 ? 'status-danger' : 'status-success');
+        realEl.className =
+            'status-value ' + (totais.saldoReal < 0 ? 'status-danger' : 'status-success');
     }
 };
 
@@ -817,16 +897,20 @@ const controleDeCarga = (d, idx, tipo) => {
     // escolher "Outra…" com uma jornada que por acaso coincide com um atalho
     // não mostrava campo nenhum: o seletor voltava ao atalho e o usuário ficava
     // sem entender por que o clique não fez nada.
-    const usarCampoLivre = d.cargaLivre || (atual > 0 && !PRESETS_CARGA.some((p) => p.valor === atual));
+    const usarCampoLivre =
+        d.cargaLivre || (atual > 0 && !PRESETS_CARGA.some((p) => p.valor === atual));
     const origem = tipo === 'dispensa' ? 'ato de dispensa' : 'decreto';
 
-    const ajuda = `Jornada que o servidor ainda devia cumprir neste dia, conforme o ${origem}. `
-        + 'Em branco, o dia não gera saldo nem déficit e fica marcado para conferência.';
+    const ajuda =
+        `Jornada que o servidor ainda devia cumprir neste dia, conforme o ${origem}. ` +
+        'Em branco, o dia não gera saldo nem déficit e fica marcado para conferência.';
 
     const opcoes = [
         `<option value=""${atual === 0 && !usarCampoLivre ? ' selected' : ''}>A conferir</option>`,
-        ...PRESETS_CARGA.map((p) =>
-            `<option value="${p.valor}"${!usarCampoLivre && atual === p.valor ? ' selected' : ''}>${esc(p.rotulo)}</option>`),
+        ...PRESETS_CARGA.map(
+            (p) =>
+                `<option value="${p.valor}"${!usarCampoLivre && atual === p.valor ? ' selected' : ''}>${esc(p.rotulo)}</option>`,
+        ),
         `<option value="custom"${usarCampoLivre ? ' selected' : ''}>Outra…</option>`,
     ].join('');
 
@@ -852,7 +936,7 @@ const renderTables = () => {
         blocks.push([i, Math.min(i + 6, daysData.length - 1)]);
     }
 
-    blocks.forEach(block => {
+    blocks.forEach((block) => {
         const table = document.createElement('table');
         table.className = 'main-table';
 
@@ -891,10 +975,26 @@ const renderTables = () => {
             // Feature 4: usar onblur ao invés de onchange para evitar disparo prematuro
             const mkMainInput = (v, isOrig, f) => {
                 const canDrag = v ? 'draggable="true"' : '';
-                if (!v && (d.dayTypeOverride === 'feriado' || d.dayTypeOverride === 'folga' || d.dayTypeOverride === 'fds' || d.dayTypeOverride === 'convocacao')) return `<span class="empty-time">——:——</span>`;
-                if (!v && d.dayTypeOverride !== 'dispensa' && isWeekend(d) && !d.mot) return `<span class="empty-time">——:——</span>`;
-                if (!v && d.dayTypeOverride !== 'dispensa' && d.saldo === '-08:00' && !d.mot && !isWeekend(d)) return `<span class="empty-time">——:——</span>`;
-                if (!v) return `<input type="time" id="m_${f}_${d.d}" value="" title="Digite o horário, ou arraste um horário de outra coluna para cá." data-dia="${i}" data-campo="${f}">`;
+                if (
+                    !v &&
+                    (d.dayTypeOverride === 'feriado' ||
+                        d.dayTypeOverride === 'folga' ||
+                        d.dayTypeOverride === 'fds' ||
+                        d.dayTypeOverride === 'convocacao')
+                )
+                    return `<span class="empty-time">——:——</span>`;
+                if (!v && d.dayTypeOverride !== 'dispensa' && isWeekend(d) && !d.mot)
+                    return `<span class="empty-time">——:——</span>`;
+                if (
+                    !v &&
+                    d.dayTypeOverride !== 'dispensa' &&
+                    d.saldo === '-08:00' &&
+                    !d.mot &&
+                    !isWeekend(d)
+                )
+                    return `<span class="empty-time">——:——</span>`;
+                if (!v)
+                    return `<input type="time" id="m_${f}_${d.d}" value="" title="Digite o horário, ou arraste um horário de outra coluna para cá." data-dia="${i}" data-campo="${f}">`;
                 const dica = isOrig
                     ? 'Horário lido da ficha: não se digita por cima, mas ARRASTE para mudar de coluna.'
                     : 'Horário gerado pelo sistema: pode ser digitado, ou arrastado para outra coluna.';
@@ -926,7 +1026,9 @@ const renderTables = () => {
             // Dispensa e expediente reduzido têm a jornada definida pelo ato que
             // os concedeu — decreto, portaria — e ela varia caso a caso. Em
             // branco o dia fica neutro em vez de o sistema arbitrar uma jornada.
-            const cargaHtml = CARGA_POR_ATO.includes(selected) ? controleDeCarga(d, i, selected) : '';
+            const cargaHtml = CARGA_POR_ATO.includes(selected)
+                ? controleDeCarga(d, i, selected)
+                : '';
 
             // Nenhum turno fecha e os dois batimentos cabem como entrada e saída
             // do expediente: propõe a leitura, sem aplicá-la. O batimento é do
@@ -950,8 +1052,9 @@ const renderTables = () => {
                 Ocorrência
             </label>`;
 
-            const opcoesTipo = TIPOS_DE_DIA.map((t) =>
-                `<option value="${t.valor}"${selected === t.valor ? ' selected' : ''} title="${esc(t.ajuda)}">${esc(t.rotulo)}</option>`
+            const opcoesTipo = TIPOS_DE_DIA.map(
+                (t) =>
+                    `<option value="${t.valor}"${selected === t.valor ? ' selected' : ''} title="${esc(t.ajuda)}">${esc(t.rotulo)}</option>`,
             ).join('');
             const ajudaTipo = TIPOS_DE_DIA.find((t) => t.valor === selected)?.ajuda || '';
 
@@ -1053,7 +1156,7 @@ document.getElementById('tablesContainer').addEventListener('drop', (e) => {
             return;
         }
 
-        const idx = daysData.findIndex(d => d.d === srcDia);
+        const idx = daysData.findIndex((d) => d.d === srcDia);
         if (idx === -1) return;
 
         let d = daysData[idx];
@@ -1135,10 +1238,14 @@ const renderBibliotecaFrases = () => {
         return;
     }
 
-    lista.innerHTML = frases.map((f) => `<li>
+    lista.innerHTML = frases
+        .map(
+            (f) => `<li>
         <span class="biblioteca-texto" title="${esc(f.tipo ? `Guardada num dia de tipo "${f.tipo}"` : 'Sem tipo de dia registrado')}">${esc(f.texto)}</span>
         <button class="icon-btn" title="Apagar esta frase da biblioteca" data-esquecer-frase="${esc(f.texto)}">✕</button>
-    </li>`).join('');
+    </li>`,
+        )
+        .join('');
 };
 
 document.addEventListener('click', (e) => {
@@ -1168,7 +1275,21 @@ if (hdrInput) {
         CONFIG.mesAno = e.target.value.trim();
         if (CONFIG.mesAno.length >= 7) {
             const [mm, yyyy] = CONFIG.mesAno.split('/');
-            const meses = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+            const meses = [
+                '',
+                'Janeiro',
+                'Fevereiro',
+                'Março',
+                'Abril',
+                'Maio',
+                'Junho',
+                'Julho',
+                'Agosto',
+                'Setembro',
+                'Outubro',
+                'Novembro',
+                'Dezembro',
+            ];
             if (parseInt(mm) >= 1 && parseInt(mm) <= 12) {
                 CONFIG.mesNome = `${meses[parseInt(mm)]} ${yyyy}`;
             }
@@ -1245,8 +1366,12 @@ const hideAllUploadStates = () => {
 };
 
 // Sync both model selects
-modelSelect.addEventListener('change', () => { modelSelect2.value = modelSelect.value; });
-modelSelect2.addEventListener('change', () => { modelSelect.value = modelSelect2.value; });
+modelSelect.addEventListener('change', () => {
+    modelSelect2.value = modelSelect.value;
+});
+modelSelect2.addEventListener('change', () => {
+    modelSelect.value = modelSelect2.value;
+});
 
 // Drag & drop
 uploadZone.addEventListener('dragover', (e) => {
@@ -1271,9 +1396,15 @@ uploadZone.addEventListener('drop', (e) => {
 
 // Click para selecionar
 uploadZone.addEventListener('click', (e) => {
-    if (e.target.closest('.upload-controls') || e.target.closest('.upload-success') ||
-        e.target.closest('.upload-file-selected') || e.target.closest('.upload-collapsed') ||
-        e.target.closest('.btn-link') || e.target.closest('.btn-toggle')) return;
+    if (
+        e.target.closest('.upload-controls') ||
+        e.target.closest('.upload-success') ||
+        e.target.closest('.upload-file-selected') ||
+        e.target.closest('.upload-collapsed') ||
+        e.target.closest('.btn-link') ||
+        e.target.closest('.btn-toggle')
+    )
+        return;
     fileInput.click();
 });
 
@@ -1372,12 +1503,15 @@ async function processUpload(file, model) {
         loadFromAPI(data);
         lastUploadedFileName = file.name;
 
-        const nAjustados = data.timesheet.dias.filter(d => d.o && d.o.includes(0)).length;
+        const nAjustados = data.timesheet.dias.filter((d) => d.o && d.o.includes(0)).length;
         hideAllUploadStates();
         uploadSuccess.style.display = 'flex';
         uploadZone.classList.add('has-success');
         uploadSuccessDetail.textContent = `${file.name} — ${data.timesheet.dias.length} dias • ${nAjustados} ajustados • ${modelName}`;
-        showToast(`Pronto! ${data.timesheet.dias.length} dias processados, ${nAjustados} ajustados.`, 'success');
+        showToast(
+            `Pronto! ${data.timesheet.dias.length} dias processados, ${nAjustados} ajustados.`,
+            'success',
+        );
 
         // Auto-collapse if saved preference
         if (localStorage.getItem('uploadCollapsed') === 'true') {
@@ -1386,7 +1520,6 @@ async function processUpload(file, model) {
             collapsedName.textContent = file.name;
             uploadZone.classList.add('has-success');
         }
-
     } catch (err) {
         hideAllUploadStates();
         uploadContent.style.display = 'flex';
@@ -1403,7 +1536,21 @@ function loadFromAPI(data) {
     if (ts.mes_ano) {
         CONFIG.mesAno = ts.mes_ano;
         const [mm, yyyy] = ts.mes_ano.split('/');
-        const meses = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        const meses = [
+            '',
+            'Janeiro',
+            'Fevereiro',
+            'Março',
+            'Abril',
+            'Maio',
+            'Junho',
+            'Julho',
+            'Agosto',
+            'Setembro',
+            'Outubro',
+            'Novembro',
+            'Dezembro',
+        ];
         CONFIG.mesNome = mm ? `${meses[parseInt(mm)]} ${yyyy}` : '';
         const hdrInput = document.getElementById('headerMonthInput');
         if (hdrInput) hdrInput.value = ts.mes_ano;
@@ -1425,7 +1572,7 @@ function loadFromAPI(data) {
     // Substituir dados. Upload novo não traz escolhas manuais: elas só existem
     // em mês já salvo, e deWire devolve os padrões corretos.
     daysData.length = 0;
-    ts.dias.forEach(d => daysData.push(deWire(d)));
+    ts.dias.forEach((d) => daysData.push(deWire(d)));
 
     // Mostrar elementos
     emptyState.style.display = 'none';
@@ -1481,7 +1628,11 @@ function applyDocTransform() {
 function fitDocToScreen() {
     if (!docNaturalWidth || !docNaturalHeight) return;
     const rect = docViewerBody.getBoundingClientRect();
-    const scale = Math.min((rect.width - 32) / docNaturalWidth, (rect.height - 32) / docNaturalHeight, 4);
+    const scale = Math.min(
+        (rect.width - 32) / docNaturalWidth,
+        (rect.height - 32) / docNaturalHeight,
+        4,
+    );
     docZoomScale = scale > 0 ? scale : 1;
     docPanX = (rect.width - docNaturalWidth * docZoomScale) / 2;
     docPanY = (rect.height - docNaturalHeight * docZoomScale) / 2;
@@ -1509,7 +1660,8 @@ function ensurePdfJs() {
         const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
         script.onload = () => {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+                'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
             resolve(window.pdfjsLib);
         };
         script.onerror = () => reject(new Error('Falha ao carregar leitor de PDF'));
@@ -1528,8 +1680,8 @@ async function renderPdfPage(pageNum) {
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    canvas.style.width = (viewport.width / 2) + 'px';
-    canvas.style.height = (viewport.height / 2) + 'px';
+    canvas.style.width = viewport.width / 2 + 'px';
+    canvas.style.height = viewport.height / 2 + 'px';
     await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
     docViewerStage.innerHTML = '';
     docViewerStage.appendChild(canvas);
@@ -1607,17 +1759,22 @@ function closeDocViewerPanel() {
 }
 
 viewDocBtn.addEventListener('click', () => {
-    if (docViewerOpen) closeDocViewerPanel(); else openDocViewerPanel();
+    if (docViewerOpen) closeDocViewerPanel();
+    else openDocViewerPanel();
 });
 document.getElementById('docViewerClose').addEventListener('click', closeDocViewerPanel);
 
 // Zoom por scroll, centrado na posição do mouse
-docViewerBody.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const rect = docViewerBody.getBoundingClientRect();
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-    zoomDocBy(factor, e.clientX - rect.left, e.clientY - rect.top);
-}, { passive: false });
+docViewerBody.addEventListener(
+    'wheel',
+    (e) => {
+        e.preventDefault();
+        const rect = docViewerBody.getBoundingClientRect();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoomDocBy(factor, e.clientX - rect.left, e.clientY - rect.top);
+    },
+    { passive: false },
+);
 
 // Pan por arraste
 docViewerBody.addEventListener('mousedown', (e) => {
@@ -1645,10 +1802,16 @@ document.getElementById('docZoomReset').addEventListener('click', () => fitDocTo
 
 // Navegação de páginas (PDF)
 document.getElementById('docPagePrev').addEventListener('click', () => {
-    if (docPdfPage > 1) { docPdfPage--; renderPdfPage(docPdfPage); }
+    if (docPdfPage > 1) {
+        docPdfPage--;
+        renderPdfPage(docPdfPage);
+    }
 });
 document.getElementById('docPageNext').addEventListener('click', () => {
-    if (docPdfPage < docPdfNumPages) { docPdfPage++; renderPdfPage(docPdfPage); }
+    if (docPdfPage < docPdfNumPages) {
+        docPdfPage++;
+        renderPdfPage(docPdfPage);
+    }
 });
 
 // Redimensionar o painel arrastando a borda
@@ -1680,24 +1843,26 @@ const openRouterApiKeyInput = document.getElementById('openRouterApiKey');
 const geminiKeyGroup = document.getElementById('geminiKeyGroup');
 const openRouterKeyGroup = document.getElementById('openRouterKeyGroup');
 
-
 // Armazenamento local temporário dos modelos
 let availableModels = {
     provider: 'gemini',
     gemini_models: [],
-    openrouter_models: []
+    openrouter_models: [],
 };
 
 // Atualiza os seletores de modelo do upload conforme o provedor ativo
 const updateModelSelectors = () => {
     const provider = apiProviderSelect.value;
-    const models = provider === 'openrouter' ? availableModels.openrouter_models : availableModels.gemini_models;
-    
+    const models =
+        provider === 'openrouter'
+            ? availableModels.openrouter_models
+            : availableModels.gemini_models;
+
     // Atualizar selects no DOM
-    [modelSelect, modelSelect2].forEach(select => {
+    [modelSelect, modelSelect2].forEach((select) => {
         if (!select) return;
         select.innerHTML = '';
-        models.forEach(m => {
+        models.forEach((m) => {
             const opt = document.createElement('option');
             opt.value = m.id;
             opt.textContent = m.name;
@@ -1728,7 +1893,7 @@ const loadModelsList = async () => {
             availableModels.provider = data.provider || 'gemini';
             availableModels.gemini_models = data.gemini_models || [];
             availableModels.openrouter_models = data.openrouter_models || [];
-            
+
             apiProviderSelect.value = availableModels.provider;
             apiProviderSelect.dispatchEvent(new Event('change'));
             updateModelSelectors();
@@ -1755,7 +1920,8 @@ const openSettings = async () => {
             geminiApiKeyInput.value = '';
 
             if (data.has_openrouter_key) {
-                openRouterApiKeyInput.placeholder = data.masked_openrouter_key || 'Chave configurada';
+                openRouterApiKeyInput.placeholder =
+                    data.masked_openrouter_key || 'Chave configurada';
             } else {
                 openRouterApiKeyInput.placeholder = 'sk-or-...';
             }
@@ -1778,11 +1944,21 @@ const saveSettings = async () => {
     const orKey = openRouterApiKeyInput.value.trim();
 
     // Validação básica se novas chaves estão sendo fornecidas
-    if (provider === 'gemini' && !geminiKey && !geminiApiKeyInput.placeholder.includes('*') && !geminiApiKeyInput.placeholder.includes('...')) {
+    if (
+        provider === 'gemini' &&
+        !geminiKey &&
+        !geminiApiKeyInput.placeholder.includes('*') &&
+        !geminiApiKeyInput.placeholder.includes('...')
+    ) {
         showToast('A chave Gemini não pode estar vazia', 'error');
         return;
     }
-    if (provider === 'openrouter' && !orKey && !openRouterApiKeyInput.placeholder.includes('*') && !openRouterApiKeyInput.placeholder.includes('...')) {
+    if (
+        provider === 'openrouter' &&
+        !orKey &&
+        !openRouterApiKeyInput.placeholder.includes('*') &&
+        !openRouterApiKeyInput.placeholder.includes('...')
+    ) {
         showToast('A chave OpenRouter não pode estar vazia', 'error');
         return;
     }
@@ -1790,17 +1966,17 @@ const saveSettings = async () => {
     try {
         saveSettingsBtn.textContent = 'Salvando...';
         saveSettingsBtn.disabled = true;
-        
+
         const payload = {
             provider: provider,
             gemini_api_key: geminiKey,
-            open_router_api_key: orKey
+            open_router_api_key: orKey,
         };
 
         const res = await fetch(`${CONFIG.apiBase}/api/settings`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
         });
         const data = await res.json();
 
@@ -1869,7 +2045,9 @@ const showSaveStatus = (status) => {
     } else if (status === 'saved') {
         el.textContent = '✓ Salvo';
         el.classList.add('saved');
-        setTimeout(() => { el.textContent = ''; }, 3000);
+        setTimeout(() => {
+            el.textContent = '';
+        }, 3000);
     } else if (status === 'error') {
         el.textContent = '✗ Erro';
         el.classList.add('saving');
@@ -1947,7 +2125,7 @@ const updateMonthSelector = () => {
     nav.style.display = 'flex';
     select.innerHTML = '';
 
-    savedMonths.forEach(m => {
+    savedMonths.forEach((m) => {
         const opt = document.createElement('option');
         opt.value = m.mes_ano;
         opt.textContent = mesAnoToLabel(m.mes_ano);
@@ -1956,7 +2134,7 @@ const updateMonthSelector = () => {
     });
 
     // Se o mês atual não está na lista (recém processado), adicionar
-    if (CONFIG.mesAno && !savedMonths.find(m => m.mes_ano === CONFIG.mesAno)) {
+    if (CONFIG.mesAno && !savedMonths.find((m) => m.mes_ano === CONFIG.mesAno)) {
         const opt = document.createElement('option');
         opt.value = CONFIG.mesAno;
         opt.textContent = mesAnoToLabel(CONFIG.mesAno) + ' (novo)';
@@ -1988,7 +2166,7 @@ const loadMonthData = async (mesAno) => {
 
         // Substituir dados
         daysData.length = 0;
-        data.dias.forEach(d => daysData.push(deWire(d)));
+        data.dias.forEach((d) => daysData.push(deWire(d)));
 
         // Mostrar elementos
         emptyState.style.display = 'none';
@@ -2031,13 +2209,19 @@ const renderMonthListPanel = () => {
     if (defaultState) defaultState.style.display = 'none';
 
     list.innerHTML = '';
-    savedMonths.forEach(m => {
+    savedMonths.forEach((m) => {
         const card = document.createElement('div');
         card.className = 'month-card';
         card.onclick = () => loadMonthData(m.mes_ano);
 
         const updatedStr = m.updated_at
-            ? new Date(m.updated_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            ? new Date(m.updated_at).toLocaleDateString('pt-BR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+              })
             : '';
 
         card.innerHTML = `
@@ -2139,39 +2323,39 @@ const Tour = (() => {
             target: '.header-bar',
             title: '👋 Bem-vindo ao Ponto Real Go!',
             text: 'Este sistema lê sua folha de frequência, calcula saldos e gera justificativas automaticamente. Vamos aprender como usar!',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '.upload-zone',
             title: '📤 Upload da Folha de Ponto',
             text: 'Arraste uma imagem (PNG, JPEG) ou PDF da sua folha de frequência aqui, ou clique para selecionar o arquivo. O sistema usa IA para extrair os dados.',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '.model-select',
             title: '🤖 Modelo de IA',
             text: '<b>Gemini 2.5 Flash</b> (recomendado) é o mais preciso e rápido para a maioria das folhas. <b>Flash Lite</b> é uma opção mais econômica para layouts simples, e <b>Pro</b> é indicado para folhas com layout complexo ou baixa qualidade.',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '.btn-upload',
             title: '▶️ Processar',
             text: 'Após selecionar o arquivo, clique aqui para enviar a imagem para a IA. O processamento leva de 5 a 15 segundos.',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '#settingsBtn',
             title: '⚙️ Configurações',
             text: 'Configure sua chave de API aqui. Escolha entre <b>Google Gemini</b> (direto, chave gratuita em aistudio.google.com) ou <b>OpenRouter</b> como provedor de IA.',
-            pos: 'bottom-left'
+            pos: 'bottom-left',
         },
         {
             target: '#helpBtn',
             title: '❓ Ajuda',
             text: 'Clique aqui a qualquer momento para iniciar este tutorial novamente. Agora faça o upload da sua folha de ponto!',
             pos: 'bottom-left',
-            last: true
-        }
+            last: true,
+        },
     ];
 
     // Passos PÓS-upload (tabelas carregadas)
@@ -2180,75 +2364,75 @@ const Tour = (() => {
             target: '.status-bar',
             title: '📊 Barra de Status',
             text: 'Resumo do mês: <b>Faltas</b> não justificadas, dias <b>Ajustados</b> pelo sistema, dias <b>Completos</b>, e os saldos <b>Extraído</b> (da imagem) e <b>Real</b> (calculado).',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '#viewDocBtn',
             title: '🔍 Ver Documento Original',
             text: 'Abre um painel lateral com a imagem ou PDF que você enviou. Dá para dar <b>zoom</b>, arrastar (<b>pan</b>) e navegar entre páginas — útil para conferir os dados extraídos lado a lado com a tabela.',
-            pos: 'bottom-left'
+            pos: 'bottom-left',
         },
         {
             target: '.main-table',
             title: '📋 Tabela Principal',
             text: 'Todos os dias do mês com seus horários. Cada coluna representa: <b>E</b>=Entrada, <b>S</b>=Saída do almoço, <b>E</b>=Retorno do almoço, <b>S</b>=Saída final.',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '.main-table input[type="time"]:not(.readonly)',
             title: '✏️ Campos Editáveis',
             text: 'Horários em <b style="color:var(--info)">azul</b> foram gerados automaticamente e podem ser editados. Horários <b>pretos</b> são os originais extraídos da imagem.',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '.col-motivo',
             title: '🏷️ Tipo de Dia & Ocorrência',
             text: 'Seletor de tipo: <b>Útil</b>, <b>FDS</b> (auto-detectado), <b>Dispensa</b> (meio período), <b>Feriado</b>, <b>Folga</b>, <b>Convocação</b> ou <b>Reduzido</b> (expediente reduzido por decreto — informe a carga exigida em minutos). O checkbox <b>Ocorrência</b> ao lado inclui ou exclui manualmente o dia da seção de Ocorrência do SEI.',
-            pos: 'top'
+            pos: 'top',
         },
         {
             target: '.saldo-cell',
             title: '📌 Saldo (Clique p/ Copiar)',
             text: 'O saldo do dia. <b>Passe o mouse</b> para ver o saldo original da imagem no tooltip. <b>Clique</b> para copiar o valor. Valores <span style="color:var(--danger)">negativos</span> indicam horas devidas.',
-            pos: 'top'
+            pos: 'top',
         },
         {
             target: '.icon-btn[onclick*="copyRow"]',
             title: '📋 Copiar Linha',
             text: 'Copia os dados da linha com dia, horários e saldo original. Ideal para colar no sistema do estado.',
-            pos: 'left'
+            pos: 'left',
         },
         {
             target: '.copy-toolbar',
             title: '📑 Barra de Cópia',
             text: '<b>Gerar SEI</b> monta o formulário completo (dados do servidor e chefia) pronto para colar no editor do SEI. Os demais botões copiam seções soltas: <b>Tabela</b>, <b>Ocorrência</b>, <b>Justificativa</b> ou <b>Tudo</b> — separados por TAB, prontos para o Excel!',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '.doc-table:not(.justificativa)',
             title: '📝 Ocorrência',
             text: 'Lista os dias ajustados que entram no documento do SEI. Marque/desmarque o checkbox <b>Ocorrência</b> na tabela principal para incluir ou excluir um dia manualmente, ou clique no <b>✕</b> de uma linha aqui para removê-la rapidamente.',
-            pos: 'top'
+            pos: 'top',
         },
         {
             target: '#justTemplate',
             title: '✍️ Justificativa Editável',
             text: 'Personalize a frase padrão usada em todas as justificativas (ex: "esqueci de registrar"). O sistema completa automaticamente com os horários faltantes de cada dia.',
-            pos: 'top'
+            pos: 'top',
         },
         {
             target: '#monthNav',
             title: '📅 Navegação de Meses',
             text: 'Navegue entre meses salvos usando as setas ou o seletor. O sistema salva automaticamente cada análise. O indicador 💾 mostra quando há salvamento pendente.',
-            pos: 'bottom'
+            pos: 'bottom',
         },
         {
             target: '#themeToggle',
             title: '🌙 Tema Claro/Escuro',
             text: 'Alterne entre tema claro e escuro conforme sua preferência. A escolha é salva automaticamente.',
             pos: 'bottom-left',
-            last: true
-        }
+            last: true,
+        },
     ];
 
     function getSteps() {
@@ -2320,8 +2504,14 @@ const Tour = (() => {
 
     function showStep(idx, direction = 1) {
         steps = getSteps();
-        if (idx < 0) { end(); return; }
-        if (idx >= steps.length) { end(); return; }
+        if (idx < 0) {
+            end();
+            return;
+        }
+        if (idx >= steps.length) {
+            end();
+            return;
+        }
 
         const step = steps[idx];
         const target = document.querySelector(step.target);
@@ -2341,10 +2531,10 @@ const Tour = (() => {
         setTimeout(() => {
             // Spotlight
             const rect = target.getBoundingClientRect();
-            spotlight.style.top = (rect.top - 6) + 'px';
-            spotlight.style.left = (rect.left - 6) + 'px';
-            spotlight.style.width = (rect.width + 12) + 'px';
-            spotlight.style.height = (rect.height + 12) + 'px';
+            spotlight.style.top = rect.top - 6 + 'px';
+            spotlight.style.left = rect.left - 6 + 'px';
+            spotlight.style.width = rect.width + 12 + 'px';
+            spotlight.style.height = rect.height + 12 + 'px';
 
             // Content
             badgeEl.textContent = `${idx + 1}/${steps.length}`;
@@ -2352,9 +2542,9 @@ const Tour = (() => {
             textEl.innerHTML = step.text;
 
             // Dots
-            dotsEl.innerHTML = steps.map((_, i) =>
-                `<span class="tour-dot${i === idx ? ' active' : ''}"></span>`
-            ).join('');
+            dotsEl.innerHTML = steps
+                .map((_, i) => `<span class="tour-dot${i === idx ? ' active' : ''}"></span>`)
+                .join('');
 
             // Nav
             prevBtn.style.display = idx === 0 ? 'none' : 'inline-flex';
@@ -2397,9 +2587,10 @@ const Tour = (() => {
     if (nextBtn) nextBtn.addEventListener('click', next);
     if (prevBtn) prevBtn.addEventListener('click', prev);
     if (skipBtn) skipBtn.addEventListener('click', end);
-    if (overlay) overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) end();
-    });
+    if (overlay)
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) end();
+        });
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
@@ -2468,8 +2659,8 @@ const generateSeiHtml = () => {
     let ocorrenciasRowsHtml = '';
     let justificativasHtml = '';
 
-    noDocumento.forEach(d => {
-        const horarios = CAMPOS_HORARIO.map(f => celula(esc(d[f]) || '&nbsp;')).join('');
+    noDocumento.forEach((d) => {
+        const horarios = CAMPOS_HORARIO.map((f) => celula(esc(d[f]) || '&nbsp;')).join('');
         ocorrenciasRowsHtml += `<tr>${celula(esc(dataDoDia(d)))}${horarios}</tr>`;
 
         // A justificativa é a única com filtro extra: um dia sem nada escrito
@@ -2601,7 +2792,8 @@ window.openSeiModal = () => {
 
     // Popular chefia a partir do localStorage
     document.getElementById('seiChefiaNome').value = localStorage.getItem('seiChefiaNome') || '';
-    document.getElementById('seiChefiaLotacao').value = localStorage.getItem('seiChefiaLotacao') || '';
+    document.getElementById('seiChefiaLotacao').value =
+        localStorage.getItem('seiChefiaLotacao') || '';
 
     window.updateSeiPreview();
 
@@ -2618,7 +2810,7 @@ window.closeSeiModal = () => {
 window.copySeiDocument = async () => {
     saveSeiFields();
     const htmlContent = generateSeiHtml();
-    
+
     // Fallback de texto simples
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = htmlContent;
@@ -2629,7 +2821,7 @@ window.copySeiDocument = async () => {
         const blobText = new Blob([textContent], { type: 'text/plain' });
         const data = [new ClipboardItem({ 'text/html': blob, 'text/plain': blobText })];
         await navigator.clipboard.write(data);
-        
+
         const copyBtn = document.getElementById('copySeiBtn');
         const oldText = copyBtn.textContent;
         copyBtn.textContent = 'Copiado! ✓';
@@ -2638,8 +2830,11 @@ window.copySeiDocument = async () => {
             copyBtn.textContent = oldText;
             copyBtn.style.background = '';
         }, 2000);
-        
-        showToast('Formulário SEI copiado como Rich Text! Agora é só colar direto no SEI.', 'success');
+
+        showToast(
+            'Formulário SEI copiado como Rich Text! Agora é só colar direto no SEI.',
+            'success',
+        );
         window.closeSeiModal();
     } catch (err) {
         console.error('Erro ao copiar HTML: ', err);

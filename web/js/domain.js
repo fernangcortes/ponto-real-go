@@ -4,7 +4,16 @@
 // É o que torna possível testar a aritmética com `node --test`, e é também o
 // que a Fase 4 vai substituir por chamadas a /api/process.
 
-import { CONFIG, CAMPOS_HORARIO, NOMES_CAMPOS, DIAS_SEMANA, CARGA_DIARIA, CARGA_POR_ATO, TIPOS_NEUTROS, TIPO_POR_SELECAO } from './config.js';
+import {
+    CONFIG,
+    CAMPOS_HORARIO,
+    NOMES_CAMPOS,
+    DIAS_SEMANA,
+    CARGA_DIARIA,
+    CARGA_POR_ATO,
+    TIPOS_NEUTROS,
+    TIPO_POR_SELECAO,
+} from './config.js';
 import { t2m, isTimeValid, parseOrigSaldo, normalizeObs } from './util.js';
 
 // --- Calendário real ---
@@ -29,7 +38,11 @@ export const isWeekend = (d) => {
 // o sistema nunca gera horário nesses dias.
 export const isExpedienteReduzido = (d) => {
     const t = normalizeObs(d.mot) + ' ' + normalizeObs(d.ocor);
-    return t.includes('EXPEDIENTE REDUZIDO') || t.includes('HORARIO REDUZIDO') || t.includes('JORNADA REDUZIDA');
+    return (
+        t.includes('EXPEDIENTE REDUZIDO') ||
+        t.includes('HORARIO REDUZIDO') ||
+        t.includes('JORNADA REDUZIDA')
+    );
 };
 
 // --- Tipo de dia ---
@@ -59,7 +72,8 @@ export const detectarTipoDia = (d) => {
     // de observações. Férias homologadas são ausência autorizada, não falta.
     if (motivo.includes('FERIAS')) return 'ferias';
     if (motivo.includes('DISPENSA')) return 'dispensa';
-    if (motivo.includes('RECESSO') || motivo.includes('FERIADO') || motivo.includes('FACULTATIVO')) return 'feriado';
+    if (motivo.includes('RECESSO') || motivo.includes('FERIADO') || motivo.includes('FACULTATIVO'))
+        return 'feriado';
     if (isWeekend(d)) return 'fds';
     return 'util';
 };
@@ -124,13 +138,16 @@ export const camposFaltantes = (d, isDispensa) => {
 // Mensagens que o backend também emite. Repetidas aqui porque o aviso precisa
 // acompanhar a edição na hora: derivá-lo só no servidor deixava o ⚠️
 // desatualizado até a página ser recarregada.
-export const MSG_CARGA_REDUZIDA = 'Expediente reduzido: confira a carga horária do dia definida pelo decreto.';
-export const MSG_CARGA_DISPENSA = 'Dispensa: informe a jornada exigida neste dia, conforme o ato que a concedeu.';
+export const MSG_CARGA_REDUZIDA =
+    'Expediente reduzido: confira a carga horária do dia definida pelo decreto.';
+export const MSG_CARGA_DISPENSA =
+    'Dispensa: informe a jornada exigida neste dia, conforme o ato que a concedeu.';
 
 // Espelho de rules.MsgRevisarColunasNaoFecham. Os dois lados conferem contra
 // testdata/regras.json: se um apontar e o outro não, o ⚠️ aparece na tela e
 // some ao recarregar, ou o contrário.
-export const MSG_COLUNAS_NAO_FECHAM = 'Nenhum turno fecha: os batimentos deste dia estão em colunas que não formam par de entrada e saída.';
+export const MSG_COLUNAS_NAO_FECHAM =
+    'Nenhum turno fecha: os batimentos deste dia estão em colunas que não formam par de entrada e saída.';
 
 // colunasNaoFecham diz se o dia tem batimento mas nenhum turno completo.
 //
@@ -162,8 +179,12 @@ export const colunasNaoFecham = (d, tipo) =>
 export const propostaDeColunas = (d, tipo) => {
     if (!colunasNaoFecham(d, tipo)) return null;
 
-    const pontos = CAMPOS_HORARIO
-        .map((campo, slot) => ({ campo, slot, valor: d[campo], real: (d.o || [])[slot] === 1 }))
+    const pontos = CAMPOS_HORARIO.map((campo, slot) => ({
+        campo,
+        slot,
+        valor: d[campo],
+        real: (d.o || [])[slot] === 1,
+    }))
         .filter((p) => isTimeValid(p.valor))
         .sort((a, b) => t2m(a.valor) - t2m(b.valor));
 
@@ -191,10 +212,14 @@ export const avisoDeRevisao = (d, tipo) => {
     // Sem isso o ⚠️ sobrevive à própria correção e só some ao recarregar a
     // página, dizendo que há problema onde não há mais.
     const doBackend = d.revisar_motivo || '';
-    if (doBackend === MSG_CARGA_REDUZIDA || doBackend === MSG_CARGA_DISPENSA ||
-        doBackend === MSG_COLUNAS_NAO_FECHAM) return '';
+    if (
+        doBackend === MSG_CARGA_REDUZIDA ||
+        doBackend === MSG_CARGA_DISPENSA ||
+        doBackend === MSG_COLUNAS_NAO_FECHAM
+    )
+        return '';
 
-    return d.revisar ? (doBackend || 'Requer conferência manual') : '';
+    return d.revisar ? doBackend || 'Requer conferência manual' : '';
 };
 
 // --- Saldos ---

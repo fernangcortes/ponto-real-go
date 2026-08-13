@@ -84,6 +84,16 @@ jobs:
 
       - run: npm ci
 
+      # Formatação do JS e do CSS de web/. A versão do Prettier é fixada no
+      # package.json pelo mesmo motivo da do golangci-lint: formatador que
+      # diverge entre local e CI só descobre problema depois do push.
+      #
+      # Aqui roda em Linux, sobre LF. O .gitattributes deste projeto fixa
+      # eol=lf também na cópia de trabalho, então `npm run format:check` no
+      # Windows concorda com este — ao contrário do gofmt, que enxerga o CRLF
+      # da cópia de trabalho em projetos sem essa regra.
+      - run: npm run format:check
+
       # Só regras de defeito real (no-undef, no-unused-vars, eqeqeq).
       # O app não tem build: o Node aqui serve ao lint e aos testes.
       - run: npm run lint
