@@ -163,9 +163,10 @@ export const justificativaDeAto = (d, tipo = classifyDay(d)) => {
 
     const nome = tipo === 'dispensa' ? 'dispensa' : 'expediente reduzido';
     const turnos = turnosDoDia(d);
-    const cumprido = trabalhado > d.carga
-        ? `cumpri ${duracaoHumana(trabalhado)} da jornada de ${duracaoHumana(d.carga)} exigida pelo ato`
-        : `cumpri integralmente a jornada de ${duracaoHumana(d.carga)} exigida pelo ato`;
+    const cumprido =
+        trabalhado > d.carga
+            ? `cumpri ${duracaoHumana(trabalhado)} da jornada de ${duracaoHumana(d.carga)} exigida pelo ato`
+            : `cumpri integralmente a jornada de ${duracaoHumana(d.carga)} exigida pelo ato`;
 
     return `Dia de ${nome}: ${cumprido}${turnos ? `, com expediente ${turnos}` : ''}.`;
 };

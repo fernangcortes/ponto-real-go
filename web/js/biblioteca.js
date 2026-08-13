@@ -147,4 +147,7 @@ export const guardarFrase = async (apiBase, texto, tipo) => {
 
 // esquecerFrase tira a frase da biblioteca.
 export const esquecerFrase = async (apiBase, texto) =>
-    sincronizar(apiBase, frases.filter((f) => !mesmoTexto(f.texto, texto)));
+    sincronizar(
+        apiBase,
+        frases.filter((f) => !mesmoTexto(f.texto, texto)),
+    );

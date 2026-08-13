@@ -13,7 +13,12 @@ export const t2m = (t) => {
 export const m2t = (m) => {
     const sign = m < 0 ? '-' : '+';
     const abs = Math.abs(m);
-    return sign + String(Math.floor(abs / 60)).padStart(2, '0') + ':' + String(abs % 60).padStart(2, '0');
+    return (
+        sign +
+        String(Math.floor(abs / 60)).padStart(2, '0') +
+        ':' +
+        String(abs % 60).padStart(2, '0')
+    );
 };
 
 // m2tUnsigned formata minutos como duração, sem sinal: "08:00".
@@ -34,7 +39,8 @@ export const isTimeValid = (t) => {
     if (!t || t === '**:**') return false;
     const parts = t.split(':');
     if (parts.length !== 2) return false;
-    const h = parseInt(parts[0]), m = parseInt(parts[1]);
+    const h = parseInt(parts[0]),
+        m = parseInt(parts[1]);
     return !isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59;
 };
 
@@ -43,12 +49,13 @@ export const isTimeValid = (t) => {
 // Os textos vêm da leitura do documento por IA: uma aspa numa observação
 // ("DISPENSA P/ CURSO "X"") quebrava a linha inteira da tabela. O escape
 // existia, mas aplicado caso a caso — `revisar_motivo` tinha, `mot` não.
-export const esc = (v) => String(v ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+export const esc = (v) =>
+    String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 
 // copiavel marca um elemento como clicável para copiar.
 //
@@ -59,8 +66,11 @@ export const esc = (v) => String(v ?? '')
 export const copiavel = (valor) => `data-copy="${esc(valor)}"`;
 
 // Remove acentos para comparar texto de observação vindo da ficha.
-export const normalizeObs = (s) => (s || '').toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+export const normalizeObs = (s) =>
+    (s || '')
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
 
 export const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 

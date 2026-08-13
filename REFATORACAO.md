@@ -394,9 +394,45 @@ backend.
 A armadilha do `||` em `ocorrencia_manual` (onde `false` é valor válido) agora
 está documentada e resolvida em um ponto, não em três.
 
-### 3.5 `styles.css` — ⏳ PENDENTE
-1985 linhas, 45 seções por comentário, 9 `!important`. Continua sendo o item de
-menor risco e menor retorno; não foi tocado. **Prettier** idem.
+### 3.5 `styles.css` e Prettier ✅ CONCLUÍDOS (2026-08-13)
+
+Eram 2151 linhas com **9 `!important`**. Hoje é **1**, e ele explica no comentário
+contra o que briga. Nenhuma regra foi reescrita "para ficar melhor": cada um dos
+oito foi removido por um motivo apurado, e o resultado conferido no navegador
+comparando o estilo computado.
+
+| `!important` | Por que saiu |
+|---|---|
+| `.col-motivo` (3×) | perdia para `.main-table td`, que centraliza e usa nowrap. O prefixo `.main-table .col-motivo` já vence por especificidade |
+| `.col-acao-manual` | idem, contra o padding de `.doc-table td` |
+| `tr.row-*  .day-indicator` | **regra morta**: a classe `day-indicator` não é emitida em lugar nenhum de `web/` |
+| `td[onclick*="copyCell"]` (+ o `::after` irmão) | **regra morta**: o `onclick` inline foi substituído por delegação de evento na Fase 3, como o próprio comentário de `util.js` registra |
+| `.saldo-cell:hover` | não tinha concorrente. Conferido no navegador percorrendo todas as regras que casam com a célula e mexem em `background`: só ela |
+| `.doc-viewer-panel` (media query) | mesma especificidade da regra base e vem **depois** no arquivo — já vencia por ordem. Conferido em viewport de 800px: 800px, não os 420px da variável |
+
+O que sobrou é `tr.validation-error td input[type="time"]`, e ele é necessário:
+durante um arraste, `body.arrastando-horario .main-table input[type="time"]:hover`
+tem especificidade maior e reescreveria a borda inteira. Um campo inválido não
+pode parecer válido só porque o ponteiro passou por cima dele.
+
+De quebra, o arquivo tinha **um byte CR solto** na última linha, herdado de antes
+do `.gitattributes`. Removido.
+
+**Prettier** entrou junto, sobre `web/**/*.{js,css}` — o escopo que a 5.5 previu.
+O `index.html` ficou de fora de propósito: reformatar marcação mexe no espaço
+entre elementos inline, que é significativo na renderização.
+
+A versão é fixada em `package.json` (`--save-exact`) pelo mesmo motivo da do
+golangci-lint: formatador que diverge entre local e CI só descobre problema
+depois do push. `npm run format:check` virou portão no job de front-end.
+
+> **Sobre o falso positivo de fim de linha:** a regra geral é que `prettier
+> --check` no Windows acusa todos os arquivos por causa do CRLF da cópia de
+> trabalho. **Aqui não acontece**, e vale saber por quê: o `.gitattributes` deste
+> projeto tem `* text=auto eol=lf`, que força LF **também na cópia de trabalho** e
+> anula o `core.autocrlf`. Conferido byte a byte antes de rodar qualquer coisa —
+> `web/app.js` tem zero bytes CR no blob e na árvore. Os 9 arquivos que o
+> Prettier acusou tinham diferença real de formatação, não de fim de linha.
 
 ### 3.6 Achado da Fase 3: o auto-save apagava a identificação do servidor 🔴
 Descoberto ao verificar o resultado do recorte em módulos.
@@ -745,6 +781,10 @@ Achou 13 problemas no `app.js`, todos resolvidos:
 ### 5.5 O que ficou de fora, de propósito
 - **Prettier.** Reformatar 4.500 linhas de JS/CSS logo antes de a Fase 3
   reescrevê-las é churn puro que ainda enterraria o diff real. Entra na Fase 3.
+  *(Entrou, em 2026-08-13, depois de a Fase 3 terminar — ver 3.5. O churn foi de
+  ~1000 linhas, e o commit está em `.git-blame-ignore-revs` para não atrapalhar
+  o `git blame`, que neste projeto é usado para rastrear de onde veio cada
+  número.)*
 - **Testes de front-end.** `node --test` sobre `domain.js` só faz sentido depois
   que a Fase 3 criar o `domain.js`.
 
@@ -761,9 +801,9 @@ Achou 13 problemas no `app.js`, todos resolvidos:
 | ~~3~~ | ~~Modularizar front-end~~ | — | ✅ (falta só 3.5, o CSS) |
 | ~~4~~ | ~~Fonte única de verdade~~ | — | ✅ (troca final: ver 4.8) |
 
-**Sobrou do plano inteiro:** o CSS (3.5), o Prettier e a troca da 4.8 — sobre a
-qual a recomendação agora é *não fazer*, porque o teste compartilhado já entrega
-a garantia que ela entregaria.
+**Sobrou do plano inteiro:** só a troca da 4.8 — sobre a qual a recomendação é
+*não fazer*, porque o teste compartilhado já entrega a garantia que ela
+entregaria. O CSS (3.5) e o Prettier saíram em 2026-08-13.
 
 A reescrita do `RulesAdjuster` (4.5) saiu em 2026-08-13. O que resta dela não é
 código, é **decisão**: as quatro constantes divergentes, que mudam horário em dia

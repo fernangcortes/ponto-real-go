@@ -19,8 +19,13 @@ import { fileURLToPath } from 'node:url';
 
 import { CONFIG } from './config.js';
 import {
-    classifyDay, saldoDoDia, deWire,
-    avisoDeRevisao, MSG_CARGA_DISPENSA, MSG_CARGA_REDUZIDA, MSG_COLUNAS_NAO_FECHAM,
+    classifyDay,
+    saldoDoDia,
+    deWire,
+    avisoDeRevisao,
+    MSG_CARGA_DISPENSA,
+    MSG_CARGA_REDUZIDA,
+    MSG_COLUNAS_NAO_FECHAM,
 } from './domain.js';
 
 const AVISO_ESPERADO = {
@@ -32,7 +37,7 @@ const AVISO_ESPERADO = {
 
 const aqui = path.dirname(fileURLToPath(import.meta.url));
 const fixture = JSON.parse(
-    fs.readFileSync(path.join(aqui, '..', '..', 'testdata', 'regras.json'), 'utf8')
+    fs.readFileSync(path.join(aqui, '..', '..', 'testdata', 'regras.json'), 'utf8'),
 );
 
 test('o arquivo compartilhado tem casos', () => {
@@ -52,6 +57,10 @@ for (const caso of fixture.casos) {
 
         // O aviso de conferência também é regra: se um lado pedir a jornada do
         // ato e o outro não, o usuário vê ⚠️ num e não no outro.
-        assert.equal(avisoDeRevisao(d, tipo), AVISO_ESPERADO[caso.aviso_carga], 'aviso de conferência');
+        assert.equal(
+            avisoDeRevisao(d, tipo),
+            AVISO_ESPERADO[caso.aviso_carga],
+            'aviso de conferência',
+        );
     });
 }
